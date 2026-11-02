@@ -1,6 +1,8 @@
 package fr.homeiptv.v2
 
 import android.app.Activity
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
@@ -14,6 +16,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -23,6 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -30,9 +37,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.Normalizer
+import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
@@ -45,14 +55,23 @@ private val Rust = Color(0xFFC95132)
 private val Cyan = Color(0xFF65C9D7)
 
 class MainActivity : ComponentActivity() {
+    private val resumeTick = mutableStateOf(0)
+    private lateinit var sourceStore: SourceStore
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { HomeApp(SourceStore(this@MainActivity)) }
+        sourceStore = SourceStore(this)
+        setContent { HomeApp(sourceStore, resumeTick.value) }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::sourceStore.isInitialized) resumeTick.value++
     }
 }
 
 @Composable
-private fun HomeApp(store: SourceStore) {
+private fun HomeApp(store: SourceStore, resumeTick: Int) {
     var section by remember { mutableStateOf("Accueil") }
     var profiles by remember { mutableStateOf(store.all()) }
     var active by remember { mutableStateOf(store.active()) }
@@ -64,6 +83,11 @@ private fun HomeApp(store: SourceStore) {
     var xtreamCategories by remember { mutableStateOf<List<XtreamCategory>>(emptyList()) }
     var categoryOpen by remember { mutableStateOf(false) }
     var seriesEpisodes by remember { mutableStateOf<List<XtreamItem>?>(null) }
+    var selectedSeries by remember { mutableStateOf<XtreamItem?>(null) }
+    var recentContent by remember { mutableStateOf(store.recents()) }
+    var searchResults by remember { mutableStateOf<List<XtreamItem>>(emptyList()) }
+    var searchLoading by remember { mutableStateOf(false) }
+    var searchJob by remember { mutableStateOf<Job?>(null) }
     val scope = rememberCoroutineScope()
     val activity = LocalContext.current as Activity
     val selectedTab = when (section) { "Films" -> "vod"; "Séries" -> "series"; else -> "live" }
@@ -72,6 +96,8 @@ private fun HomeApp(store: SourceStore) {
     var checkingUpdate by remember { mutableStateOf(false) }
     var installingUpdate by remember { mutableStateOf(false) }
 
+    LaunchedEffect(resumeTick) { recentContent = store.recents() }
+
     LaunchedEffect(Unit) {
         checkingUpdate = true
         availableUpdate = runCatching { UpdateManager.findUpdate() }.getOrNull()
@@ -79,7 +105,14 @@ private fun HomeApp(store: SourceStore) {
     }
 
     LaunchedEffect(active?.id, selectedTab) {
-        records = emptyList(); selectedGroup = null; categoryOpen = false; xtreamCategories = emptyList(); seriesEpisodes = null; message = ""
+        records = emptyList()
+        selectedGroup = null
+        categoryOpen = false
+        xtreamCategories = emptyList()
+        seriesEpisodes = null
+        selectedSeries = null
+        searchResults = emptyList()
+        message = ""
         val profile = active ?: return@LaunchedEffect
         loading = true
         try {
@@ -87,7 +120,8 @@ private fun HomeApp(store: SourceStore) {
                 requireHttpEndpoint(profile.endpoint)
                 val parsed = withContext(Dispatchers.IO) {
                     val connection = URL(profile.endpoint).openConnection() as HttpURLConnection
-                    connection.connectTimeout = 12000; connection.readTimeout = 20000
+                    connection.connectTimeout = 12000
+                    connection.readTimeout = 20000
                     try {
                         if (connection.responseCode !in 200..299) error("Erreur HTTP ${connection.responseCode}")
                         if ((connection.getHeaderField("Content-Length")?.toLongOrNull() ?: -1L) > M3uParser.MAX_PLAYLIST_CHARACTERS) {
@@ -104,93 +138,128 @@ private fun HomeApp(store: SourceStore) {
                 val client = XtreamClient(profile.endpoint, profile.user, profile.password)
                 val categories = client.categories(if (selectedTab == "live") "live" else selectedTab)
                 xtreamCategories = categories
-                records = categories
-                if (categories.isEmpty()) message = "Aucune catégorie fournie pour cette section."
+                val firstCategory = categories.firstOrNull()
+                if (firstCategory == null) {
+                    message = "Aucune catégorie fournie pour cette section."
+                } else {
+                    selectedGroup = firstCategory.name
+                    records = client.items(selectedTab, firstCategory.ids)
+                    if (records.isEmpty()) message = "Cette catégorie ne contient aucun élément."
+                }
             }
         } catch (e: Exception) { message = e.message ?: "Impossible de charger cette source." }
         loading = false
     }
 
     MaterialTheme(colorScheme = darkColorScheme(background = Ink, surface = Panel, primary = Rust, onPrimary = Cream, onBackground = Cream, onSurface = Cream, secondary = Cyan)) {
-        Row(Modifier.fillMaxSize().background(Ink)) {
-            Column(Modifier.width(210.dp).fillMaxHeight().background(Color(0xFF151B20)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                Image(painterResource(R.drawable.home_iptv_icon), "Logo HOME IPTV", Modifier.fillMaxWidth().height(112.dp), contentScale = ContentScale.Fit)
-                listOf("Accueil", "TV en direct", "Films", "Séries", "Paramètres").forEach { item ->
-                    val chosen = item == section
-                    Text(item, color = if (chosen) Cream else Muted, fontSize = 15.sp, fontWeight = if (chosen) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (chosen) Rust.copy(alpha = .32f) else Color.Transparent).clickable { section = item }.focusable().padding(horizontal = 13.dp, vertical = 12.dp))
-                }
-                Spacer(Modifier.weight(1f))
-                Text("HOME IPTV · PERSONNEL", color = Muted, fontSize = 10.sp, letterSpacing = 1.sp)
-            }
-            Column(Modifier.weight(1f).fillMaxHeight().padding(horizontal = 24.dp, vertical = 17.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(section.uppercase(), color = Cyan, fontSize = 12.sp, letterSpacing = 2.sp)
-                    Text(active?.name ?: "Aucune source", color = Muted, fontSize = 12.sp)
-                }
-                Spacer(Modifier.height(15.dp))
-                when (section) {
-                    "Paramètres" -> SettingsScreen(profiles, active, onAdd = { adding = true }, onSelect = { store.setActive(it.id); active = it }, onDelete = { store.delete(it.id); profiles = store.all(); active = store.active() }, onVpn = {
-                        runCatching { activity.startActivity(Intent(Settings.ACTION_VPN_SETTINGS)) }
-                            .onFailure { runCatching { activity.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS)) } }
-                    }, onCheckUpdate = {
-                        scope.launch {
-                            checkingUpdate = true
-                            val result = runCatching { UpdateManager.findUpdate() }
-                            checkingUpdate = false
-                            availableUpdate = result.getOrNull()
-                            if (result.isFailure) updateMessage = "Impossible de vérifier les mises à jour. Réessaie plus tard."
-                            else if (availableUpdate == null) updateMessage = "Tu utilises déjà la dernière version publiée."
-                        }
-                    }, updateStatus = when {
-                        checkingUpdate -> "Recherche de mise à jour…"
-                        availableUpdate != null -> "Version ${availableUpdate!!.versionName} disponible."
-                        else -> null
-                    })
-                    "Accueil" -> {
-                        Hero()
-                        Spacer(Modifier.height(18.dp))
-                        Text("À regarder", color = Cream, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                        Text(if (active == null) "Ajoute ta playlist M3U ou tes accès Xtream dans Paramètres pour commencer." else "Choisis TV en direct, Films ou Séries dans le menu.", color = Muted, modifier = Modifier.padding(top = 8.dp))
+        Column(Modifier.fillMaxSize().background(Ink)) {
+            HeaderNavigation(section, active?.name ?: "Aucune source", onNavigate = { section = it })
+            when (section) {
+                "Paramètres" -> SettingsScreen(profiles, active, onAdd = { adding = true }, onSelect = {
+                    store.setActive(it.id); active = it
+                }, onDelete = {
+                    store.delete(it.id); profiles = store.all(); active = store.active(); recentContent = store.recents()
+                }, onVpn = {
+                    runCatching { activity.startActivity(Intent(Settings.ACTION_VPN_SETTINGS)) }
+                        .onFailure { runCatching { activity.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS)) } }
+                }, onCheckUpdate = {
+                    scope.launch {
+                        checkingUpdate = true
+                        val result = runCatching { UpdateManager.findUpdate() }
+                        checkingUpdate = false
+                        availableUpdate = result.getOrNull()
+                        if (result.isFailure) updateMessage = "Impossible de vérifier les mises à jour. Réessaie plus tard."
+                        else if (availableUpdate == null) updateMessage = "Tu utilises déjà la dernière version publiée."
                     }
-                    else -> CatalogScreen(section, records, selectedGroup, onGroup = { selectedGroup = it }, loading = loading, message = message,
-                        onPlayM3u = { activity.play(it.url) }, onLoadItems = { category ->
-                            categoryOpen = true
-                            selectedGroup = category.name
-                            scope.launch {
+                }, updateStatus = when {
+                    checkingUpdate -> "Recherche de mise à jour…"
+                    availableUpdate != null -> "Version ${availableUpdate!!.versionName} disponible."
+                    else -> null
+                })
+                "Accueil" -> HomeDashboard(recentContent, active == null, onResume = { recent ->
+                    activity.play(recent.url, recent.kind, recent.title, recent.subtitle, recent.image, recent.category, recent.positionMs)
+                })
+                else -> CatalogScreen(
+                    section = section,
+                    sourceKind = active?.kind ?: "",
+                    records = records,
+                    categories = xtreamCategories,
+                    selectedGroup = selectedGroup,
+                    loading = loading,
+                    searchLoading = searchLoading,
+                    searchResults = searchResults,
+                    message = message,
+                    episodes = seriesEpisodes,
+                    seriesTitle = selectedSeries?.name,
+                    onSearch = { query ->
+                        searchJob?.cancel()
+                        val profile = active
+                        if (profile == null || profile.kind != "Xtream" || query.length < 2) {
+                            searchResults = emptyList()
+                            searchLoading = false
+                        } else {
+                            searchJob = scope.launch {
+                                searchLoading = true
+                                message = ""
+                                val result = runCatching {
+                                    XtreamClient(profile.endpoint, profile.user, profile.password).searchItems(selectedTab, query)
+                                }
+                                searchResults = result.getOrDefault(emptyList())
+                                if (result.isFailure) message = result.exceptionOrNull()?.message ?: "La recherche a échoué."
+                                searchLoading = false
+                            }
+                        }
+                    },
+                    onSelectGroup = { name ->
+                        selectedGroup = name
+                        seriesEpisodes = null
+                        selectedSeries = null
+                        if (active?.kind == "Xtream") {
+                            val category = xtreamCategories.firstOrNull { it.name == name }
+                            if (category != null) scope.launch {
                                 loading = true; message = ""
                                 try {
-                                    val p = active ?: return@launch
-                                    val data = XtreamClient(p.endpoint, p.user, p.password).items(selectedTab, category.ids)
-                                    records = data
-                                    if (data.isEmpty()) message = "Cette catégorie ne contient aucun élément."
+                                    val profile = active ?: return@launch
+                                    records = XtreamClient(profile.endpoint, profile.user, profile.password).items(selectedTab, category.ids)
+                                    if (records.isEmpty()) message = "Cette catégorie ne contient aucun élément."
                                 } catch (e: Exception) { message = e.message ?: "Erreur de chargement." }
                                 loading = false
                             }
-                        }, onBrowseCategories = {
-                            categoryOpen = false
-                            selectedGroup = null
-                            seriesEpisodes = null
-                            records = xtreamCategories
-                        }, onBackEpisodes = { seriesEpisodes = null }, onPlayXtream = { item ->
-                            val p = active
-                            if (p != null) {
-                            val kind = if (section == "TV en direct") "live" else "vod"
-                            activity.play(XtreamClient(p.endpoint, p.user, p.password).streamUrl(kind, item))
-                            }
-                        }, onSeries = { item ->
-                            val p = active
-                            if (p != null) scope.launch {
-                                loading = true
-                                try { seriesEpisodes = XtreamClient(p.endpoint, p.user, p.password).episodes(item.id) }
-                                catch (e: Exception) { message = e.message ?: "Impossible de charger les épisodes." }
-                                loading = false
-                            }
-                        }, episodes = seriesEpisodes, onPlayEpisode = { ep ->
-                            val p = active
-                            if (p != null) activity.play(XtreamClient(p.endpoint, p.user, p.password).streamUrl("series", ep))
-                        }, categoryOpen = categoryOpen)
-                }
+                        }
+                    },
+                    onPlayM3u = { entry ->
+                        activity.play(entry.url, selectedTab, entry.name, entry.group, entry.logo, entry.group)
+                    },
+                    onPlayXtream = { item ->
+                        val kind = selectedTab
+                        val p = active
+                        if (p != null) activity.play(
+                            XtreamClient(p.endpoint, p.user, p.password).streamUrl(kind, item),
+                            kind, item.name, item.year ?: "", item.logo,
+                            xtreamCategories.firstOrNull { item.categoryId in it.ids }?.name.orEmpty()
+                        )
+                    },
+                    onSeries = { item ->
+                        val p = active
+                        selectedSeries = item
+                        if (p != null) scope.launch {
+                            loading = true
+                            try { seriesEpisodes = XtreamClient(p.endpoint, p.user, p.password).episodes(item.id) }
+                            catch (e: Exception) { message = e.message ?: "Impossible de charger les épisodes." }
+                            loading = false
+                        }
+                    },
+                    onBackEpisodes = { seriesEpisodes = null; selectedSeries = null },
+                    onPlayEpisode = { episode ->
+                        val p = active
+                        val series = selectedSeries
+                        if (p != null && series != null) activity.play(
+                            XtreamClient(p.endpoint, p.user, p.password).streamUrl("series", episode),
+                            "series", series.name, episode.name, series.logo,
+                            xtreamCategories.firstOrNull { series.categoryId in it.ids }?.name.orEmpty()
+                        )
+                    }
+                )
             }
         }
         availableUpdate?.let { update ->
@@ -251,7 +320,19 @@ private fun HomeApp(store: SourceStore) {
     }
 }
 
-private fun Activity.play(url: String) { startActivity(Intent(this, PlaybackActivity::class.java).putExtra(PlaybackActivity.EXTRA_URL, url)) }
+private fun Activity.play(
+    url: String, kind: String, title: String, subtitle: String = "", image: String? = null,
+    category: String = "", positionMs: Long = 0L
+) {
+    startActivity(Intent(this, PlaybackActivity::class.java)
+        .putExtra(PlaybackActivity.EXTRA_URL, url)
+        .putExtra(PlaybackActivity.EXTRA_KIND, kind)
+        .putExtra(PlaybackActivity.EXTRA_TITLE, title)
+        .putExtra(PlaybackActivity.EXTRA_SUBTITLE, subtitle)
+        .putExtra(PlaybackActivity.EXTRA_IMAGE, image)
+        .putExtra(PlaybackActivity.EXTRA_CATEGORY, category)
+        .putExtra(PlaybackActivity.EXTRA_POSITION, positionMs))
+}
 
 private fun requireHttpEndpoint(value: String) {
     val uri = android.net.Uri.parse(value.trim())
@@ -345,81 +426,513 @@ private fun AddSourceDialog(onDismiss: () -> Unit, onSave: (String, String, Stri
 
 @Composable
 private fun CatalogScreen(
-    section: String, records: List<Any>, selectedGroup: String?, onGroup: (String?) -> Unit, loading: Boolean, message: String,
-    onPlayM3u: (PlaylistEntry) -> Unit, onLoadItems: (XtreamCategory) -> Unit, onBrowseCategories: () -> Unit,
-    onBackEpisodes: () -> Unit, onPlayXtream: (XtreamItem) -> Unit,
-    onSeries: (XtreamItem) -> Unit, episodes: List<XtreamItem>?, onPlayEpisode: (XtreamItem) -> Unit, categoryOpen: Boolean
+    section: String,
+    sourceKind: String,
+    records: List<Any>,
+    categories: List<XtreamCategory>,
+    selectedGroup: String?,
+    loading: Boolean,
+    searchLoading: Boolean,
+    searchResults: List<XtreamItem>,
+    message: String,
+    episodes: List<XtreamItem>?,
+    seriesTitle: String?,
+    onSearch: (String) -> Unit,
+    onSelectGroup: (String) -> Unit,
+    onPlayM3u: (PlaylistEntry) -> Unit,
+    onPlayXtream: (XtreamItem) -> Unit,
+    onSeries: (XtreamItem) -> Unit,
+    onBackEpisodes: () -> Unit,
+    onPlayEpisode: (XtreamItem) -> Unit
 ) {
-    var searchOpen by remember(section, records, episodes) { mutableStateOf(false) }
-    var searchText by remember(section, records, episodes) { mutableStateOf("") }
-    val normalizedQuery = normalizeSearchText(searchText.trim())
-    fun matches(vararg fields: String?): Boolean = normalizedQuery.isBlank() || fields.any {
-        normalizeSearchText(it.orEmpty()).contains(normalizedQuery)
-    }
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(section, modifier = Modifier.weight(1f), color = Cream, fontSize = 25.sp, fontWeight = FontWeight.Bold)
-            TextButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) searchText = "" }) {
-                Text(if (searchOpen) "Fermer" else "⌕ Rechercher")
-            }
-            if (loading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+    var searchText by remember(section) { mutableStateOf("") }
+    val query = normalizeSearchText(searchText.trim())
+    LaunchedEffect(query, sourceKind) {
+        if (sourceKind == "Xtream" && query.length >= 2) {
+            delay(500)
+            onSearch(query)
+        } else {
+            onSearch("")
         }
-        if (searchOpen) {
+    }
+
+    val m3uEntries = remember(records) { records.filterIsInstance<PlaylistEntry>() }
+    val groups = if (sourceKind == "M3U") m3uEntries.map { it.group }.distinct().sorted() else categories.map { it.name }
+    val filteredM3u = m3uEntries.filter { entry ->
+        val groupMatches = query.isNotBlank() || selectedGroup == null || selectedGroup == entry.group
+        groupMatches && (query.isBlank() || normalizeSearchText(entry.name + " " + entry.group).contains(query))
+    }
+    val categoryName: (XtreamItem) -> String = { item ->
+        categories.firstOrNull { item.categoryId in it.ids }?.name ?: selectedGroup ?: "Autres"
+    }
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text(section, color = Cream, fontSize = 25.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             OutlinedTextField(
                 value = searchText,
                 onValueChange = { searchText = it },
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                modifier = Modifier.widthIn(min = 220.dp, max = 360.dp),
                 singleLine = true,
-                label = { Text("Rechercher dans la catégorie") },
+                label = { Text("Tout rechercher") },
                 placeholder = { Text("Chaîne, film ou série") },
-                trailingIcon = { if (searchText.isNotEmpty()) TextButton(onClick = { searchText = "" }) { Text("Effacer") } }
+                trailingIcon = {
+                    if (searchText.isNotEmpty()) TextButton(onClick = { searchText = "" }) { Text("×") }
+                    else Text("⌕", color = Cyan, fontSize = 21.sp)
+                }
             )
+            if (loading || searchLoading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
         }
-        if (message.isNotBlank() && !loading) Text(message, color = Muted, modifier = Modifier.padding(top = 12.dp))
-        if (categoryOpen && records.isEmpty()) TextButton(onClick = onBrowseCategories) { Text("← Retour aux catégories") }
-        when {
-            records.firstOrNull() is PlaylistEntry -> {
-                val entries = records.filterIsInstance<PlaylistEntry>()
-                val groups = entries.map { it.group }.distinct().sorted()
-                val filteredEntries = entries.filter { (selectedGroup == null || selectedGroup == it.group) && matches(it.name, it.group) }
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    FilterChip(selected = selectedGroup == null, onClick = { onGroup(null) }, label = { Text("Toutes") })
-                    groups.forEach { group -> FilterChip(selected = selectedGroup == group, onClick = { onGroup(group) }, label = { Text(group) }) }
+        Spacer(Modifier.height(14.dp))
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(
+                Modifier.width(220.dp).fillMaxHeight().clip(RoundedCornerShape(14.dp)).background(Color(0xFF151B20))
+                    .verticalScroll(rememberScrollState()).padding(12.dp)
+            ) {
+                Text("CATÉGORIES", color = Cyan, fontSize = 11.sp, letterSpacing = 1.5.sp, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp))
+                if (sourceKind == "M3U") {
+                    CategoryButton("Toutes", selectedGroup == null, query.isNotBlank()) { onSelectGroup("") }
+                    groups.forEach { group -> CategoryButton(group, selectedGroup == group && query.isBlank(), false) { onSelectGroup(group) } }
+                } else {
+                    categories.forEach { category -> CategoryButton(category.name, selectedGroup == category.name && query.isBlank(), false) { onSelectGroup(category.name) } }
                 }
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    if (filteredEntries.isEmpty()) item { Text("Aucun résultat", color = Muted, modifier = Modifier.padding(12.dp)) }
-                    items(filteredEntries, key = { it.url }) { entry -> CatalogRow(entry.name, entry.group, entry.logo, onClick = { onPlayM3u(entry) }) }
-                }
+                if (groups.isEmpty() && categories.isEmpty()) Text("Aucune catégorie", color = Muted, modifier = Modifier.padding(8.dp))
             }
-            records.firstOrNull() is XtreamCategory -> {
-                val categories = records.filterIsInstance<XtreamCategory>().filter { matches(it.name) }
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    if (categories.isEmpty()) item { Text("Aucun résultat", color = Muted, modifier = Modifier.padding(12.dp)) }
-                    items(categories, key = { it.id }) { category -> CatalogRow(category.name, "Catégorie", null) { onLoadItems(category) } }
-                }
-            }
-            records.firstOrNull() is XtreamItem -> {
-                val items = records.filterIsInstance<XtreamItem>()
+            Column(Modifier.weight(1f).fillMaxHeight()) {
                 if (episodes != null) {
-                    TextButton(onClick = onBackEpisodes) { Text("← Retour aux séries") }
-                    Text("Épisodes", color = Muted, modifier = Modifier.padding(vertical = 8.dp))
-                    val filteredEpisodes = episodes.filter { matches(it.name, it.plot, it.year) }
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                        if (filteredEpisodes.isEmpty()) item { Text("Aucun résultat", color = Muted, modifier = Modifier.padding(12.dp)) }
-                        items(filteredEpisodes, key = { it.id }) { ep -> CatalogRow(ep.name, ep.plot.orEmpty(), null) { onPlayEpisode(ep) } }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onBackEpisodes) { Text("← Séries") }
+                        Text("Épisodes · ${seriesTitle.orEmpty()}", color = Cream, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     }
-                } else LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    if (categoryOpen) item { TextButton(onClick = onBrowseCategories) { Text("← Retour aux catégories") } }
-                    val filteredItems = items.filter { matches(it.name, it.year, it.plot) }
-                    if (filteredItems.isEmpty()) item { Text("Aucun résultat", color = Muted, modifier = Modifier.padding(12.dp)) }
-                    items(filteredItems, key = { it.id }) { item ->
-                        val series = section == "Séries"
-                        CatalogRow(item.name, item.year ?: "", item.logo) { if (series) onSeries(item) else onPlayXtream(item) }
+                    if (episodes.isEmpty() && !loading) Text("Aucun épisode trouvé.", color = Muted, modifier = Modifier.padding(16.dp))
+                    LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(episodes, key = { it.id }) { item ->
+                            CatalogGridCard(item.name, item.plot ?: item.year.orEmpty(), item.logo, landscape = true) { onPlayEpisode(item) }
+                        }
+                    }
+                } else if (sourceKind == "M3U") {
+                    if (filteredM3u.isEmpty() && !loading) Text(if (message.isNotBlank()) message else "Aucun contenu trouvé.", color = Muted, modifier = Modifier.padding(16.dp))
+                    LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(filteredM3u, key = { it.url }) { entry ->
+                            CatalogGridCard(entry.name, entry.group, entry.logo, landscape = section == "TV en direct") { onPlayM3u(entry) }
+                        }
+                    }
+                } else {
+                    val displayedItems = if (query.isNotBlank()) searchResults else records.filterIsInstance<XtreamItem>()
+                    if (displayedItems.isEmpty() && !loading && !searchLoading) {
+                        val text = when {
+                            message.isNotBlank() -> message
+                            query.isNotBlank() -> "Aucun contenu trouvé."
+                            selectedGroup == null -> "Choisis une catégorie pour afficher ses contenus."
+                            else -> "Cette catégorie ne contient aucun contenu."
+                        }
+                        Text(text, color = Muted, modifier = Modifier.padding(16.dp))
+                    } else {
+                        LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            items(displayedItems, key = { it.id }) { item ->
+                                val subtitle = if (query.isNotBlank()) categoryName(item) else (item.year ?: categoryName(item))
+                                CatalogGridCard(item.name, subtitle, item.logo, landscape = section == "TV en direct") {
+                                    if (section == "Séries") onSeries(item) else onPlayXtream(item)
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun CategoryButton(title: String, selected: Boolean, disabled: Boolean, onClick: () -> Unit) {
+    Text(
+        title,
+        color = if (selected) Cream else Muted,
+        fontSize = 13.sp,
+        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        maxLines = 2,
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp))
+            .background(if (selected) Rust.copy(alpha = .34f) else Color.Transparent)
+            .clickable(enabled = !disabled, onClick = onClick).focusable()
+            .padding(horizontal = 10.dp, vertical = 11.dp)
+    )
+}
+
+@Composable
+private fun HeaderNavigation(section: String, sourceName: String, onNavigate: (String) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().background(Color(0xFF151B20)).padding(horizontal = 18.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Image(painterResource(R.drawable.home_iptv_icon), "HOME IPTV", Modifier.size(width = 68.dp, height = 48.dp), contentScale = ContentScale.Fit)
+        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            listOf("Accueil", "TV en direct", "Films", "Séries").forEach { item ->
+                val selected = item == section
+                Text(
+                    item,
+                    color = if (selected) Cream else Muted,
+                    fontSize = 15.sp,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    modifier = Modifier.clip(RoundedCornerShape(10.dp))
+                        .background(if (selected) Rust.copy(alpha = .28f) else Color.Transparent)
+                        .clickable { onNavigate(item) }.focusable()
+                        .padding(horizontal = 13.dp, vertical = 11.dp)
+                )
+            }
+        }
+        Text(sourceName, color = Muted, fontSize = 11.sp, maxLines = 1, modifier = Modifier.widthIn(max = 130.dp).padding(horizontal = 8.dp))
+        Text(
+            "⚙",
+            color = if (section == "Paramètres") Cyan else Cream,
+            fontSize = 23.sp,
+            modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onNavigate("Paramètres") }
+                .focusable().padding(horizontal = 13.dp, vertical = 8.dp)
+        )
+    }
+}
+
+@Composable
+private fun HomeDashboard(recent: List<RecentPlayback>, noSource: Boolean, onResume: (RecentPlayback) -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp)) {
+        Hero()
+        Spacer(Modifier.height(20.dp))
+        Text("Reprendre", color = Cream, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+        if (noSource) {
+            Text("Ajoute une source dans ⚙ Paramètres pour commencer.", color = Muted, modifier = Modifier.padding(top = 8.dp))
+        } else if (recent.isEmpty()) {
+            Text("Tes dernières chaînes, films et séries apparaîtront ici.", color = Muted, modifier = Modifier.padding(top = 8.dp))
+        } else {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                recent.sortedBy { listOf("live", "vod", "series").indexOf(it.kind) }.forEach { item ->
+                    RecentCard(item, onClick = { onResume(item) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentCard(item: RecentPlayback, onClick: () -> Unit) {
+    val label = when (item.kind) { "live" -> "DERNIÈRE CHAÎNE"; "series" -> "REPRENDRE LA SÉRIE"; else -> "REPRENDRE LE FILM" }
+    Column(
+        Modifier.width(220.dp).clip(RoundedCornerShape(14.dp)).background(Panel).clickable(onClick = onClick).focusable().padding(10.dp)
+    ) {
+        NetworkArtwork(item.image, Modifier.fillMaxWidth().height(132.dp), landscape = false)
+        Text(label, color = Cyan, fontSize = 10.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 9.dp))
+        Text(item.title, color = Cream, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, modifier = Modifier.padding(top = 4.dp))
+        if (item.subtitle.isNotBlank()) Text(item.subtitle, color = Muted, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
+        if (item.kind != "live" && item.positionMs > 0L) {
+            val minutes = item.positionMs / 60_000L
+            Text("Reprendre à ${minutes / 60}h ${minutes % 60}min", color = Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
+        }
+    }
+}
+
+@Composable
+private fun CatalogGridCard(title: String, subtitle: String, image: String?, landscape: Boolean, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Panel).clickable(onClick = onClick).focusable().padding(8.dp)) {
+        NetworkArtwork(image, Modifier.fillMaxWidth().height(if (landscape) 92.dp else 174.dp), landscape)
+        Text(title, color = Cream, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, modifier = Modifier.padding(top = 7.dp))
+        if (subtitle.isNotBlank()) Text(subtitle, color = Muted, fontSize = 11.sp, maxLines = 1)
+    }
+}
+
+@Composable
+private fun NetworkArtwork(url: String?, modifier: Modifier = Modifier, landscape: Boolean) {
+    var bitmap by remember(url) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(url) {
+        bitmap = if (url.isNullOrBlank()) null else withContext(Dispatchers.IO) {
+            runCatching { loadArtwork(url)?.asImageBitmap() }.getOrNull()
+        }
+    }
+    Box(modifier.clip(RoundedCornerShape(9.dp)).background(Color(0xFF252B30)), contentAlignment = Alignment.Center) {
+        bitmap?.let { Image(it, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+        if (bitmap == null) Text(if (landscape) "▶" else "HOME IPTV", color = if (landscape) Rust else Muted, fontSize = if (landscape) 30.sp else 11.sp)
+    }
+}
+
+private fun loadArtwork(url: String): Bitmap? {
+    val connection = (URL(url).openConnection() as? HttpURLConnection) ?: return null
+    connection.connectTimeout = 6000
+    connection.readTimeout = 6000
+    connection.setRequestProperty("User-Agent", "HOME IPTV Android")
+    try {
+        val code = connection.responseCode
+        if (code !in 200..299) return null
+        if ((connection.getHeaderField("Content-Length")?.toLongOrNull() ?: -1L) > 2L * 1024 * 1024) return null
+        val bytes = connection.inputStream.use { input ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                if (output.size() + count > 2 * 1024 * 1024) return null
+                output.write(buffer, 0, count)
+            }
+            output.toByteArray()
+        }
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val sample = maxOf(1, maxOf(bounds.outWidth / 600, bounds.outHeight / 700))
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+    } catch (_: Exception) {
+        return null
+    } finally { connection.disconnect() }
+}
+
+private fun CatalogScreen(
+    section: String,
+    sourceKind: String,
+    records: List<Any>,
+    categories: List<XtreamCategory>,
+    selectedGroup: String?,
+    loading: Boolean,
+    searchLoading: Boolean,
+    searchResults: List<XtreamItem>,
+    message: String,
+    episodes: List<XtreamItem>?,
+    seriesTitle: String?,
+    onSearch: (String) -> Unit,
+    onSelectGroup: (String) -> Unit,
+    onPlayM3u: (PlaylistEntry) -> Unit,
+    onPlayXtream: (XtreamItem) -> Unit,
+    onSeries: (XtreamItem) -> Unit,
+    onBackEpisodes: () -> Unit,
+    onPlayEpisode: (XtreamItem) -> Unit
+) {
+    var searchText by remember(section) { mutableStateOf("") }
+    val query = normalizeSearchText(searchText.trim())
+    LaunchedEffect(query, sourceKind) {
+        if (sourceKind == "Xtream" && query.length >= 2) {
+            delay(500)
+            onSearch(query)
+        } else {
+            onSearch("")
+        }
+    }
+
+    val m3uEntries = remember(records) { records.filterIsInstance<PlaylistEntry>() }
+    val groups = if (sourceKind == "M3U") m3uEntries.map { it.group }.distinct().sorted() else categories.map { it.name }
+    val filteredM3u = m3uEntries.filter { entry ->
+        val groupMatches = query.isNotBlank() || selectedGroup == null || selectedGroup == entry.group
+        groupMatches && (query.isBlank() || normalizeSearchText(entry.name + " " + entry.group).contains(query))
+    }
+    val categoryName: (XtreamItem) -> String = { item ->
+        categories.firstOrNull { item.categoryId in it.ids }?.name ?: selectedGroup ?: "Autres"
+    }
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text(section, color = Cream, fontSize = 25.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            OutlinedTextField(
+                value = searchText,
+                onValueChange = { searchText = it },
+                modifier = Modifier.widthIn(min = 220.dp, max = 360.dp),
+                singleLine = true,
+                label = { Text("Tout rechercher") },
+                placeholder = { Text("Chaîne, film ou série") },
+                trailingIcon = {
+                    if (searchText.isNotEmpty()) TextButton(onClick = { searchText = "" }) { Text("×") }
+                    else Text("⌕", color = Cyan, fontSize = 21.sp)
+                }
+            )
+            if (loading || searchLoading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+        }
+        Spacer(Modifier.height(14.dp))
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(
+                Modifier.width(220.dp).fillMaxHeight().clip(RoundedCornerShape(14.dp)).background(Color(0xFF151B20))
+                    .verticalScroll(rememberScrollState()).padding(12.dp)
+            ) {
+                Text("CATÉGORIES", color = Cyan, fontSize = 11.sp, letterSpacing = 1.5.sp, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp))
+                if (sourceKind == "M3U") {
+                    CategoryButton("Toutes", selectedGroup == null, query.isNotBlank()) { onSelectGroup("") }
+                    groups.forEach { group -> CategoryButton(group, selectedGroup == group && query.isBlank(), false) { onSelectGroup(group) } }
+                } else {
+                    categories.forEach { category -> CategoryButton(category.name, selectedGroup == category.name && query.isBlank(), false) { onSelectGroup(category.name) } }
+                }
+                if (groups.isEmpty() && categories.isEmpty()) Text("Aucune catégorie", color = Muted, modifier = Modifier.padding(8.dp))
+            }
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                if (episodes != null) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onBackEpisodes) { Text("← Séries") }
+                        Text("Épisodes · ${seriesTitle.orEmpty()}", color = Cream, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    }
+                    if (episodes.isEmpty() && !loading) Text("Aucun épisode trouvé.", color = Muted, modifier = Modifier.padding(16.dp))
+                    LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(episodes, key = { it.id }) { item ->
+                            CatalogGridCard(item.name, item.plot ?: item.year.orEmpty(), item.logo, landscape = true) { onPlayEpisode(item) }
+                        }
+                    }
+                } else if (sourceKind == "M3U") {
+                    if (filteredM3u.isEmpty() && !loading) Text(if (message.isNotBlank()) message else "Aucun contenu trouvé.", color = Muted, modifier = Modifier.padding(16.dp))
+                    LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(filteredM3u, key = { it.url }) { entry ->
+                            CatalogGridCard(entry.name, entry.group, entry.logo, landscape = section == "TV en direct") { onPlayM3u(entry) }
+                        }
+                    }
+                } else {
+                    val displayedItems = if (query.isNotBlank()) searchResults else records.filterIsInstance<XtreamItem>()
+                    if (displayedItems.isEmpty() && !loading && !searchLoading) {
+                        val text = when {
+                            message.isNotBlank() -> message
+                            query.isNotBlank() -> "Aucun contenu trouvé."
+                            selectedGroup == null -> "Choisis une catégorie pour afficher ses contenus."
+                            else -> "Cette catégorie ne contient aucun contenu."
+                        }
+                        Text(text, color = Muted, modifier = Modifier.padding(16.dp))
+                    } else {
+                        LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            items(displayedItems, key = { it.id }) { item ->
+                                val subtitle = if (query.isNotBlank()) categoryName(item) else (item.year ?: categoryName(item))
+                                CatalogGridCard(item.name, subtitle, item.logo, landscape = section == "TV en direct") {
+                                    if (section == "Séries") onSeries(item) else onPlayXtream(item)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoryButton(title: String, selected: Boolean, disabled: Boolean, onClick: () -> Unit) {
+    Text(
+        title,
+        color = if (selected) Cream else Muted,
+        fontSize = 13.sp,
+        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        maxLines = 2,
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp))
+            .background(if (selected) Rust.copy(alpha = .34f) else Color.Transparent)
+            .clickable(enabled = !disabled, onClick = onClick).focusable()
+            .padding(horizontal = 10.dp, vertical = 11.dp)
+    )
+}
+
+@Composable
+private fun HeaderNavigation(section: String, sourceName: String, onNavigate: (String) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().background(Color(0xFF151B20)).padding(horizontal = 18.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Image(painterResource(R.drawable.home_iptv_icon), "HOME IPTV", Modifier.size(width = 68.dp, height = 48.dp), contentScale = ContentScale.Fit)
+        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            listOf("Accueil", "TV en direct", "Films", "Séries").forEach { item ->
+                val selected = item == section
+                Text(
+                    item,
+                    color = if (selected) Cream else Muted,
+                    fontSize = 15.sp,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    modifier = Modifier.clip(RoundedCornerShape(10.dp))
+                        .background(if (selected) Rust.copy(alpha = .28f) else Color.Transparent)
+                        .clickable { onNavigate(item) }.focusable()
+                        .padding(horizontal = 13.dp, vertical = 11.dp)
+                )
+            }
+        }
+        Text(sourceName, color = Muted, fontSize = 11.sp, maxLines = 1, modifier = Modifier.widthIn(max = 130.dp).padding(horizontal = 8.dp))
+        Text(
+            "⚙",
+            color = if (section == "Paramètres") Cyan else Cream,
+            fontSize = 23.sp,
+            modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onNavigate("Paramètres") }
+                .focusable().padding(horizontal = 13.dp, vertical = 8.dp)
+        )
+    }
+}
+
+@Composable
+private fun HomeDashboard(recent: List<RecentPlayback>, noSource: Boolean, onResume: (RecentPlayback) -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp)) {
+        Hero()
+        Spacer(Modifier.height(20.dp))
+        Text("Reprendre", color = Cream, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+        if (noSource) {
+            Text("Ajoute une source dans ⚙ Paramètres pour commencer.", color = Muted, modifier = Modifier.padding(top = 8.dp))
+        } else if (recent.isEmpty()) {
+            Text("Tes dernières chaînes, films et séries apparaîtront ici.", color = Muted, modifier = Modifier.padding(top = 8.dp))
+        } else {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                recent.sortedBy { listOf("live", "vod", "series").indexOf(it.kind) }.forEach { item ->
+                    RecentCard(item, onClick = { onResume(item) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentCard(item: RecentPlayback, onClick: () -> Unit) {
+    val label = when (item.kind) { "live" -> "DERNIÈRE CHAÎNE"; "series" -> "REPRENDRE LA SÉRIE"; else -> "REPRENDRE LE FILM" }
+    Column(
+        Modifier.width(220.dp).clip(RoundedCornerShape(14.dp)).background(Panel).clickable(onClick = onClick).focusable().padding(10.dp)
+    ) {
+        NetworkArtwork(item.image, Modifier.fillMaxWidth().height(132.dp), landscape = false)
+        Text(label, color = Cyan, fontSize = 10.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 9.dp))
+        Text(item.title, color = Cream, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, modifier = Modifier.padding(top = 4.dp))
+        if (item.subtitle.isNotBlank()) Text(item.subtitle, color = Muted, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
+        if (item.kind != "live" && item.positionMs > 0L) {
+            val minutes = item.positionMs / 60_000L
+            Text("Reprendre à ${minutes / 60}h ${minutes % 60}min", color = Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
+        }
+    }
+}
+
+@Composable
+private fun CatalogGridCard(title: String, subtitle: String, image: String?, landscape: Boolean, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Panel).clickable(onClick = onClick).focusable().padding(8.dp)) {
+        NetworkArtwork(image, Modifier.fillMaxWidth().height(if (landscape) 92.dp else 174.dp), landscape)
+        Text(title, color = Cream, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, modifier = Modifier.padding(top = 7.dp))
+        if (subtitle.isNotBlank()) Text(subtitle, color = Muted, fontSize = 11.sp, maxLines = 1)
+    }
+}
+
+@Composable
+private fun NetworkArtwork(url: String?, modifier: Modifier = Modifier, landscape: Boolean) {
+    var bitmap by remember(url) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(url) {
+        bitmap = if (url.isNullOrBlank()) null else withContext(Dispatchers.IO) {
+            runCatching { loadArtwork(url)?.asImageBitmap() }.getOrNull()
+        }
+    }
+    Box(modifier.clip(RoundedCornerShape(9.dp)).background(Color(0xFF252B30)), contentAlignment = Alignment.Center) {
+        bitmap?.let { Image(it, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+        if (bitmap == null) Text(if (landscape) "▶" else "HOME IPTV", color = if (landscape) Rust else Muted, fontSize = if (landscape) 30.sp else 11.sp)
+    }
+}
+
+private fun loadArtwork(url: String): Bitmap? {
+    val connection = (URL(url).openConnection() as? HttpURLConnection) ?: return null
+    connection.connectTimeout = 6000
+    connection.readTimeout = 6000
+    connection.setRequestProperty("User-Agent", "HOME IPTV Android")
+    try {
+        val code = connection.responseCode
+        if (code !in 200..299) return null
+        if ((connection.getHeaderField("Content-Length")?.toLongOrNull() ?: -1L) > 2L * 1024 * 1024) return null
+        val bytes = connection.inputStream.use { input ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                if (output.size() + count > 2 * 1024 * 1024) return null
+                output.write(buffer, 0, count)
+            }
+            output.toByteArray()
+        }
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val sample = maxOf(1, maxOf(bounds.outWidth / 600, bounds.outHeight / 700))
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+    } catch (_: Exception) {
+        return null
+    } finally { connection.disconnect() }
 }
 
 private fun normalizeSearchText(value: String): String =
