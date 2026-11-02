@@ -25,6 +25,7 @@ internal data class UpdateInfo(
 internal object UpdateManager {
     private const val CURRENT_VERSION_CODE = BuildConfig.VERSION_CODE
     private const val API = "https://api.github.com/repos/9BillyTheDev2/HOME-IPTV/releases?per_page=20"
+    private const val RELEASE_ASSET_PREFIX = "https://github.com/9BillyTheDev2/HOME-IPTV/releases/download/"
     private const val MAX_APK_BYTES = 120L * 1024L * 1024L
 
     suspend fun findUpdate(): UpdateInfo? = withContext(Dispatchers.IO) {
@@ -37,7 +38,7 @@ internal object UpdateManager {
                 .mapNotNull { assets.optJSONObject(it) }
                 .firstOrNull { it.optString("name") == "home-iptv-update.json" } ?: continue
             val descriptorUrl = descriptor.optString("browser_download_url")
-            if (!descriptorUrl.startsWith("https://")) continue
+            if (!descriptorUrl.startsWith(RELEASE_ASSET_PREFIX)) continue
             val metadata = JSONObject(String(readUrl(descriptorUrl), Charsets.UTF_8))
             val code = metadata.optInt("versionCode", 0)
             if (code <= CURRENT_VERSION_CODE) return@withContext null
@@ -47,7 +48,7 @@ internal object UpdateManager {
                 .firstOrNull { it.optString("name") == apkName } ?: continue
             val apkUrl = apk.optString("browser_download_url")
             val checksum = metadata.optString("sha256").lowercase()
-            if (!apkUrl.startsWith("https://") || !checksum.matches(Regex("[0-9a-f]{64}"))) continue
+            if (!apkUrl.startsWith(RELEASE_ASSET_PREFIX) || !checksum.matches(Regex("[0-9a-f]{64}"))) continue
             return@withContext UpdateInfo(code, metadata.optString("versionName"), apkUrl, checksum)
         }
         null
