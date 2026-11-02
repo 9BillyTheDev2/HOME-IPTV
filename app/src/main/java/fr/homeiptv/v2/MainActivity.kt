@@ -90,7 +90,7 @@ private fun HomeApp(store: SourceStore) {
                     connection.connectTimeout = 12000; connection.readTimeout = 20000
                     try {
                         if (connection.responseCode !in 200..299) error("Erreur HTTP ${connection.responseCode}")
-                        if (connection.contentLengthLong > M3uParser.MAX_PLAYLIST_CHARACTERS) {
+                        if ((connection.getHeaderField("Content-Length")?.toLongOrNull() ?: -1L) > M3uParser.MAX_PLAYLIST_CHARACTERS) {
                             error(M3uParser.playlistTooLargeMessage)
                         }
                         connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
@@ -234,7 +234,7 @@ private fun HomeApp(store: SourceStore) {
                             c.connectTimeout = 12000; c.readTimeout = 20000
                             try {
                                 if (c.responseCode !in 200..299) error("La playlist répond HTTP ${c.responseCode}")
-                                if (c.contentLengthLong > M3uParser.MAX_PLAYLIST_CHARACTERS) {
+                                if ((c.getHeaderField("Content-Length")?.toLongOrNull() ?: -1L) > M3uParser.MAX_PLAYLIST_CHARACTERS) {
                                     error(M3uParser.playlistTooLargeMessage)
                                 }
                                 c.inputStream.bufferedReader(Charsets.UTF_8).use { M3uParser.parse(it) }
