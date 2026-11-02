@@ -11,8 +11,8 @@ android {
         applicationId = "fr.homeiptv.v2"
         minSdk = 23
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-alpha"
+        versionCode = 2
+        versionName = "0.1.1-alpha"
     }
 
     buildFeatures { compose = true }
@@ -31,6 +31,7 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui-text")
+    implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.media3:media3-exoplayer:1.8.0")
     implementation("androidx.media3:media3-exoplayer-hls:1.8.0")
     implementation("androidx.media3:media3-ui:1.8.0")
