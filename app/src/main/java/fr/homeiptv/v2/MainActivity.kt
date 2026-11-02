@@ -285,10 +285,30 @@ private fun CatalogScreen(
     onBackEpisodes: () -> Unit, onPlayXtream: (XtreamItem) -> Unit,
     onSeries: (XtreamItem) -> Unit, episodes: List<XtreamItem>?, onPlayEpisode: (XtreamItem) -> Unit, categoryOpen: Boolean
 ) {
+    var searchOpen by remember(section, records, episodes) { mutableStateOf(false) }
+    var searchText by remember(section, records, episodes) { mutableStateOf("") }
+    val normalizedQuery = normalizeSearchText(searchText.trim())
+    fun matches(vararg fields: String?): Boolean = normalizedQuery.isBlank() || fields.any {
+        normalizeSearchText(it.orEmpty()).contains(normalizedQuery)
+    }
     Column(Modifier.fillMaxSize()) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(section, color = Cream, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(section, modifier = Modifier.weight(1f), color = Cream, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+            TextButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) searchText = "" }) {
+                Text(if (searchOpen) "Fermer" else "⌕ Rechercher")
+            }
             if (loading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+        }
+        if (searchOpen) {
+            OutlinedTextField(
+                value = searchText,
+                onValueChange = { searchText = it },
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                singleLine = true,
+                label = { Text("Rechercher dans la catégorie") },
+                placeholder = { Text("Chaîne, film ou série") },
+                trailingIcon = { if (searchText.isNotEmpty()) TextButton(onClick = { searchText = "" }) { Text("Effacer") } }
+            )
         }
         if (message.isNotBlank() && !loading) Text(message, color = Muted, modifier = Modifier.padding(top = 12.dp))
         if (categoryOpen && records.isEmpty()) TextButton(onClick = onBrowseCategories) { Text("← Retour aux catégories") }
@@ -296,17 +316,21 @@ private fun CatalogScreen(
             records.firstOrNull() is PlaylistEntry -> {
                 val entries = records.filterIsInstance<PlaylistEntry>()
                 val groups = entries.map { it.group }.distinct().sorted()
+                val filteredEntries = entries.filter { (selectedGroup == null || selectedGroup == it.group) && matches(it.name, it.group) }
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     FilterChip(selected = selectedGroup == null, onClick = { onGroup(null) }, label = { Text("Toutes") })
                     groups.forEach { group -> FilterChip(selected = selectedGroup == group, onClick = { onGroup(group) }, label = { Text(group) }) }
                 }
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    items(entries.filter { selectedGroup == null || selectedGroup == it.group }, key = { it.url }) { entry -> CatalogRow(entry.name, entry.group, entry.logo, onClick = { onPlayM3u(entry) }) }
+                    if (filteredEntries.isEmpty()) item { Text("Aucun résultat", color = Muted, modifier = Modifier.padding(12.dp)) }
+                    items(filteredEntries, key = { it.url }) { entry -> CatalogRow(entry.name, entry.group, entry.logo, onClick = { onPlayM3u(entry) }) }
                 }
             }
             records.firstOrNull() is XtreamCategory -> {
+                val categories = records.filterIsInstance<XtreamCategory>().filter { matches(it.name) }
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    items(records.filterIsInstance<XtreamCategory>(), key = { it.id }) { category -> CatalogRow(category.name, "Catégorie", null) { onLoadItems(category) } }
+                    if (categories.isEmpty()) item { Text("Aucun résultat", color = Muted, modifier = Modifier.padding(12.dp)) }
+                    items(categories, key = { it.id }) { category -> CatalogRow(category.name, "Catégorie", null) { onLoadItems(category) } }
                 }
             }
             records.firstOrNull() is XtreamItem -> {
@@ -314,10 +338,16 @@ private fun CatalogScreen(
                 if (episodes != null) {
                     TextButton(onClick = onBackEpisodes) { Text("← Retour aux séries") }
                     Text("Épisodes", color = Muted, modifier = Modifier.padding(vertical = 8.dp))
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) { items(episodes, key = { it.id }) { ep -> CatalogRow(ep.name, ep.plot.orEmpty(), null) { onPlayEpisode(ep) } } }
+                    val filteredEpisodes = episodes.filter { matches(it.name, it.plot, it.year) }
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        if (filteredEpisodes.isEmpty()) item { Text("Aucun résultat", color = Muted, modifier = Modifier.padding(12.dp)) }
+                        items(filteredEpisodes, key = { it.id }) { ep -> CatalogRow(ep.name, ep.plot.orEmpty(), null) { onPlayEpisode(ep) } }
+                    }
                 } else LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     if (categoryOpen) item { TextButton(onClick = onBrowseCategories) { Text("← Retour aux catégories") } }
-                    items(items, key = { it.id }) { item ->
+                    val filteredItems = items.filter { matches(it.name, it.year, it.plot) }
+                    if (filteredItems.isEmpty()) item { Text("Aucun résultat", color = Muted, modifier = Modifier.padding(12.dp)) }
+                    items(filteredItems, key = { it.id }) { item ->
                         val series = section == "Séries"
                         CatalogRow(item.name, item.year ?: "", item.logo) { if (series) onSeries(item) else onPlayXtream(item) }
                     }
@@ -326,6 +356,9 @@ private fun CatalogScreen(
         }
     }
 }
+
+private fun normalizeSearchText(value: String): String =
+    Normalizer.normalize(value.lowercase(), Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "")
 
 @Composable
 private fun CatalogRow(title: String, subtitle: String, logo: String?, onClick: () -> Unit) {
