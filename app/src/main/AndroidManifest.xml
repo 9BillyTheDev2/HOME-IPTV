@@ -4,6 +4,7 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <application
         android:allowBackup="false"
+        android:usesCleartextTraffic="true"
         android:icon="@drawable/home_iptv_icon"
         android:roundIcon="@drawable/home_iptv_icon"
         android:label="HOME IPTV"
