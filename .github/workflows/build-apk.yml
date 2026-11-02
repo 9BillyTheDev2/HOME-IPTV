@@ -9,6 +9,10 @@ on:
       - "settings.gradle.kts"
       - "gradle.properties"
       - ".github/workflows/build-apk.yml"
+
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -34,3 +38,59 @@ jobs:
         with:
           name: home-iptv-v2-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+      - name: Check whether the private signing key is configured
+        id: signing
+        env:
+          KEYSTORE: ${{ secrets.HOME_IPTV_KEYSTORE_BASE64 }}
+          ALIAS: ${{ secrets.HOME_IPTV_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.HOME_IPTV_KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.HOME_IPTV_KEYSTORE_PASSWORD }}
+        run: |
+          if [[ -n "$KEYSTORE" && -n "$ALIAS" && -n "$KEY_PASSWORD" && -n "$STORE_PASSWORD" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Signed update skipped: configure the HOME_IPTV signing secrets."
+          fi
+      - name: Restore signing key
+        if: steps.signing.outputs.available == 'true'
+        env:
+          KEYSTORE: ${{ secrets.HOME_IPTV_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/home-iptv-release.jks"
+          chmod 600 "$RUNNER_TEMP/home-iptv-release.jks"
+          echo "HOME_IPTV_KEYSTORE_PATH=$RUNNER_TEMP/home-iptv-release.jks" >> "$GITHUB_ENV"
+      - name: Build and prepare a draft update
+        if: steps.signing.outputs.available == 'true'
+        env:
+          HOME_IPTV_KEYSTORE_PASSWORD: ${{ secrets.HOME_IPTV_KEYSTORE_PASSWORD }}
+          HOME_IPTV_KEY_ALIAS: ${{ secrets.HOME_IPTV_KEY_ALIAS }}
+          HOME_IPTV_KEY_PASSWORD: ${{ secrets.HOME_IPTV_KEY_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BASE_VERSION=$(sed -n 's/.*versionName = System.getenv("HOME_IPTV_VERSION_NAME") ?: "\(.*\)"/\1/p' app/build.gradle.kts)
+          if [[ -z "$BASE_VERSION" ]]; then
+            echo "Unable to read the base version name." >&2
+            exit 1
+          fi
+          VERSION_CODE=$((4 + GITHUB_RUN_NUMBER))
+          VERSION_NAME="$BASE_VERSION.$GITHUB_RUN_NUMBER"
+          APK_NAME="HOME-IPTV-v$VERSION_NAME.apk"
+          TAG="v$VERSION_NAME"
+          export HOME_IPTV_VERSION_CODE="$VERSION_CODE"
+          export HOME_IPTV_VERSION_NAME="$VERSION_NAME"
+          gradle --no-daemon :app:assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/$APK_NAME"
+          APK_PATH="$RUNNER_TEMP/$APK_NAME"
+          SHA256=$(sha256sum "$APK_PATH" | cut -d ' ' -f 1)
+          printf '%s  %s\n' "$SHA256" "$APK_NAME" > "$RUNNER_TEMP/$APK_NAME.sha256"
+          jq -n --arg name "$APK_NAME" --arg version "$VERSION_NAME" --arg hash "$SHA256" --argjson code "$VERSION_CODE" \
+            '{versionCode:$code, versionName:$version, apkFileName:$name, sha256:$hash}' > "$RUNNER_TEMP/home-iptv-update.json"
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --draft \
+            --prerelease \
+            --title "HOME IPTV $VERSION_NAME" \
+            --notes "APK compilée automatiquement après une modification du dépôt. Vérifie le code et l’APK, puis publie ce brouillon pour la rendre visible dans l’application. HOME IPTV demandera ensuite l’accord de l’utilisateur avant d’ouvrir l’installateur Android." \
+            "$APK_PATH" "$RUNNER_TEMP/$APK_NAME.sha256" "$RUNNER_TEMP/home-iptv-update.json"
