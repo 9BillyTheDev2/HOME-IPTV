@@ -250,23 +250,31 @@ private fun AddSourceDialog(onDismiss: () -> Unit, onSave: (String, String, Stri
     var endpoint by remember { mutableStateOf("") }
     var user by remember { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
+    var validationError by remember { mutableStateOf<String?>(null) }
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Ajouter une source") }, text = {
         Column(Modifier.heightIn(max = 450.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(name, { name = it }, label = { Text("Nom du profil") }, singleLine = true)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("M3U", "Xtream").forEach { item -> FilterChip(selected = kind == item, onClick = { kind = item }, label = { Text(item) }) }
             }
-            OutlinedTextField(endpoint, { endpoint = it }, label = { Text(if (kind == "M3U") "URL de la playlist" else "Adresse du serveur") }, singleLine = true)
+            OutlinedTextField(endpoint, { endpoint = it; validationError = null }, label = { Text(if (kind == "M3U") "URL de la playlist" else "Adresse du serveur") }, singleLine = true)
             if (kind == "Xtream") {
                 OutlinedTextField(user, { user = it }, label = { Text("Identifiant") }, singleLine = true)
                 OutlinedTextField(pass, { pass = it }, label = { Text("Mot de passe") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
             }
             Text("Les connexions HTTPS sont obligatoires pour protéger les identifiants et les flux.", color = Muted, fontSize = 11.sp)
+            validationError?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp) }
         }
     }, confirmButton = { TextButton(onClick = {
         val uri = android.net.Uri.parse(endpoint.trim())
         val validHttpsUrl = uri.scheme.equals("https", true) && !uri.host.isNullOrBlank()
-        if (name.isNotBlank() && validHttpsUrl && (kind == "M3U" || (user.isNotBlank() && pass.isNotBlank()))) onSave(name.trim(), kind, endpoint.trim(), user.trim(), pass)
+        validationError = when {
+            name.isBlank() -> "Donne un nom à cette source."
+            !validHttpsUrl -> "Entre une adresse HTTPS complète. Les liens HTTP ne sont pas acceptés."
+            kind == "Xtream" && (user.isBlank() || pass.isBlank()) -> "Renseigne l’identifiant et le mot de passe Xtream."
+            else -> null
+        }
+        if (validationError == null) onSave(name.trim(), kind, endpoint.trim(), user.trim(), pass)
     }) { Text("Tester et ajouter") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } })
 }
 
