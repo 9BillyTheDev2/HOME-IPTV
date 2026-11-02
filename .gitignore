@@ -1,0 +1,5 @@
+*.jks
+*.keystore
+*.p12
+local.properties
+.env
