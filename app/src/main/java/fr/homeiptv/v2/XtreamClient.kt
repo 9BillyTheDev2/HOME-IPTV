@@ -65,6 +65,96 @@ class XtreamClient(
         }.distinctBy { it.id }
     }
 
+    suspend fun searchItems(kind: String, query: String, maxResults: Int = 120): List<XtreamItem> = withContext(Dispatchers.IO) {
+        val action = when (kind) {
+            "live" -> "get_live_streams"
+            "vod" -> "get_vod_streams"
+            else -> "get_series"
+        }
+        val uri = Uri.parse("$base/player_api.php").buildUpon()
+            .appendQueryParameter("username", username)
+            .appendQueryParameter("password", password)
+            .appendQueryParameter("action", action)
+            .build()
+        val connection = (URL(uri.toString()).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 12000
+            readTimeout = 20000
+            requestMethod = "GET"
+            setRequestProperty("Accept", "application/json")
+        }
+        try {
+            val code = connection.responseCode
+            if (code !in 200..299) error("Le fournisseur a répondu HTTP $code")
+            val contentLength = connection.getHeaderField("Content-Length")?.toLongOrNull() ?: -1L
+            if (contentLength > MAX_SEARCH_RESPONSE_BYTES) error("Le catalogue est trop volumineux pour la recherche directe.")
+            val needle = normalizeQuery(query)
+            val results = ArrayList<XtreamItem>()
+            val input = LimitedInputStream(connection.inputStream, MAX_SEARCH_RESPONSE_BYTES)
+            val reader = android.util.JsonReader(input.reader(Charsets.UTF_8).buffered()).apply { isLenient = true }
+            reader.use {
+                it.beginArray()
+                while (it.hasNext() && results.size < maxResults) {
+                    var id = ""
+                    var name = ""
+                    var categoryId: String? = null
+                    var logo: String? = null
+                    var extension: String? = null
+                    var plot: String? = null
+                    var year: String? = null
+                    it.beginObject()
+                    while (it.hasNext()) {
+                        when (val field = it.nextName()) {
+                            if (kind == "series") "series_id" else "stream_id" -> id = it.nextStringValue()
+                            "name" -> name = it.nextStringValue()
+                            "category_id" -> categoryId = it.nextStringValue().ifBlank { null }
+                            if (kind == "series") "cover" else "stream_icon" -> logo = it.nextStringValue().ifBlank { null }
+                            "container_extension" -> extension = it.nextStringValue().ifBlank { null }
+                            "plot" -> plot = it.nextStringValue().ifBlank { null }
+                            "releaseDate" -> year = it.nextStringValue().take(4).ifBlank { null }
+                            else -> it.skipValue()
+                        }
+                    }
+                    it.endObject()
+                    if (id.isNotBlank() && normalizeQuery(name).contains(needle)) {
+                        results += XtreamItem(id, name.ifBlank { "Sans titre" }, categoryId, logo, extension, plot, year)
+                    }
+                }
+            }
+            results
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun android.util.JsonReader.nextStringValue(): String =
+        if (peek() == android.util.JsonToken.NULL) { nextNull(); "" } else nextString()
+
+    private fun normalizeQuery(value: String): String =
+        java.text.Normalizer.normalize(value.lowercase(), java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{Mn}+"), "")
+
+    private class LimitedInputStream(input: java.io.InputStream, private val limit: Long) :
+        java.io.FilterInputStream(input) {
+        private var count = 0L
+        override fun read(): Int {
+            val value = super.read()
+            if (value >= 0 && ++count > limit) error("Le catalogue dépasse la limite de sécurité de la recherche.")
+            return value
+        }
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+            val allowed = (limit - count + 1L).coerceAtMost(length.toLong()).toInt()
+            if (allowed <= 0) error("Le catalogue dépasse la limite de sécurité de la recherche.")
+            val read = super.read(buffer, offset, allowed)
+            if (read > 0) {
+                count += read
+                if (count > limit) error("Le catalogue dépasse la limite de sécurité de la recherche.")
+            }
+            return read
+        }
+    }
+
+    companion object { private const val MAX_SEARCH_RESPONSE_BYTES = 512L * 1024 * 1024 }
+
     suspend fun episodes(seriesId: String): List<XtreamItem> = withContext(Dispatchers.IO) {
         val json = request(mapOf("action" to "get_series_info", "series_id" to seriesId)) as? JSONObject
             ?: return@withContext emptyList()
