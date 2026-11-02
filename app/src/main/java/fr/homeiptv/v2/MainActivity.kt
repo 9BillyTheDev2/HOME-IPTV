@@ -94,7 +94,7 @@ private fun HomeApp(store: SourceStore) {
                             error(M3uParser.playlistTooLargeMessage)
                         }
                         connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
-                            M3uParser.parse(reader).filter { m3uSection(it) == selectedTab }
+                            M3uParser.parse(reader, includeEntry = { m3uSection(it) == selectedTab })
                         }
                     } finally { connection.disconnect() }
                 }
@@ -234,10 +234,7 @@ private fun HomeApp(store: SourceStore) {
                             c.connectTimeout = 12000; c.readTimeout = 20000
                             try {
                                 if (c.responseCode !in 200..299) error("La playlist répond HTTP ${c.responseCode}")
-                                if ((c.getHeaderField("Content-Length")?.toLongOrNull() ?: -1L) > M3uParser.MAX_PLAYLIST_CHARACTERS) {
-                                    error(M3uParser.playlistTooLargeMessage)
-                                }
-                                c.inputStream.bufferedReader(Charsets.UTF_8).use { M3uParser.parse(it) }
+                                c.inputStream.bufferedReader(Charsets.UTF_8).use { M3uParser.parse(it, stopAfterEntries = 1) }
                             } finally { c.disconnect() }
                         }
                         if (entries.isEmpty()) error("Le lien répond, mais aucune entrée M3U valide n’a été trouvée.")
