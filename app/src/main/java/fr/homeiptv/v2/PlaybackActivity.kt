@@ -14,7 +14,7 @@ class PlaybackActivity : Activity() {
         super.onCreate(savedInstanceState)
         val url = intent.getStringExtra(EXTRA_URL) ?: run { finish(); return }
         val uri = Uri.parse(url)
-        if (!uri.scheme.equals("https", ignoreCase = true) || uri.host.isNullOrBlank()) {
+        if ((!uri.scheme.equals("http", ignoreCase = true) && !uri.scheme.equals("https", ignoreCase = true)) || uri.host.isNullOrBlank()) {
             finish()
             return
         }
