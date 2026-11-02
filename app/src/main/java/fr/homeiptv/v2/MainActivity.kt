@@ -67,6 +67,16 @@ private fun HomeApp(store: SourceStore) {
     val scope = rememberCoroutineScope()
     val activity = LocalContext.current as Activity
     val selectedTab = when (section) { "Films" -> "vod"; "Séries" -> "series"; else -> "live" }
+    var availableUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
+    var updateMessage by remember { mutableStateOf<String?>(null) }
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var installingUpdate by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        checkingUpdate = true
+        availableUpdate = runCatching { UpdateManager.findUpdate() }.getOrNull()
+        checkingUpdate = false
+    }
 
     LaunchedEffect(active?.id, selectedTab) {
         records = emptyList(); selectedGroup = null; categoryOpen = false; xtreamCategories = emptyList(); seriesEpisodes = null; message = ""
@@ -117,6 +127,19 @@ private fun HomeApp(store: SourceStore) {
                     "Paramètres" -> SettingsScreen(profiles, active, onAdd = { adding = true }, onSelect = { store.setActive(it.id); active = it }, onDelete = { store.delete(it.id); profiles = store.all(); active = store.active() }, onVpn = {
                         runCatching { activity.startActivity(Intent(Settings.ACTION_VPN_SETTINGS)) }
                             .onFailure { runCatching { activity.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS)) } }
+                    }, onCheckUpdate = {
+                        scope.launch {
+                            checkingUpdate = true
+                            val result = runCatching { UpdateManager.findUpdate() }
+                            checkingUpdate = false
+                            availableUpdate = result.getOrNull()
+                            if (result.isFailure) updateMessage = "Impossible de vérifier les mises à jour. Réessaie plus tard."
+                            else if (availableUpdate == null) updateMessage = "Tu utilises déjà la dernière version publiée."
+                        }
+                    }, updateStatus = when {
+                        checkingUpdate -> "Recherche de mise à jour…"
+                        availableUpdate != null -> "Version ${availableUpdate!!.versionName} disponible."
+                        else -> null
                     })
                     "Accueil" -> {
                         Hero()
@@ -163,6 +186,35 @@ private fun HomeApp(store: SourceStore) {
                         }, categoryOpen = categoryOpen)
                 }
             }
+        }
+        availableUpdate?.let { update ->
+            AlertDialog(
+                onDismissRequest = { if (!installingUpdate) availableUpdate = null },
+                title = { Text("Mise à jour disponible") },
+                text = { Text("HOME IPTV ${update.versionName} est disponible. Après le téléchargement, Android te demandera de confirmer l’installation.") },
+                confirmButton = {
+                    TextButton(enabled = !installingUpdate, onClick = {
+                        scope.launch {
+                            installingUpdate = true
+                            val result = UpdateManager.downloadAndOpenInstaller(activity, update)
+                            installingUpdate = false
+                            availableUpdate = null
+                            if (result != null) updateMessage = result
+                        }
+                    }) { Text(if (installingUpdate) "Préparation…" else "Télécharger") }
+                },
+                dismissButton = {
+                    TextButton(enabled = !installingUpdate, onClick = { availableUpdate = null }) { Text("Plus tard") }
+                }
+            )
+        }
+        updateMessage?.let { info ->
+            AlertDialog(
+                onDismissRequest = { updateMessage = null },
+                title = { Text("Mise à jour HOME IPTV") },
+                text = { Text(info) },
+                confirmButton = { TextButton(onClick = { updateMessage = null }) { Text("OK") } }
+            )
         }
         if (adding) AddSourceDialog(onDismiss = { adding = false }, onSave = { name, kind, endpoint, user, pass ->
             scope.launch {
@@ -224,7 +276,7 @@ private fun Hero() {
 }
 
 @Composable
-private fun SettingsScreen(profiles: List<SourceProfile>, active: SourceProfile?, onAdd: () -> Unit, onSelect: (SourceProfile) -> Unit, onDelete: (SourceProfile) -> Unit, onVpn: () -> Unit) {
+private fun SettingsScreen(profiles: List<SourceProfile>, active: SourceProfile?, onAdd: () -> Unit, onSelect: (SourceProfile) -> Unit, onDelete: (SourceProfile) -> Unit, onVpn: () -> Unit, onCheckUpdate: () -> Unit, updateStatus: String?) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Text("Mes sources", color = Cream, fontSize = 25.sp, fontWeight = FontWeight.Bold)
         Text("Les identifiants restent chiffrés sur cet appareil.", color = Muted, modifier = Modifier.padding(top = 5.dp, bottom = 15.dp))
@@ -236,6 +288,10 @@ private fun SettingsScreen(profiles: List<SourceProfile>, active: SourceProfile?
             }
         }
         Button(onClick = onAdd) { Text("＋ Ajouter une source") }
+        OutlinedButton(onClick = onCheckUpdate, enabled = updateStatus != "Recherche de mise à jour…") {
+            Text("Rechercher une mise à jour")
+        }
+        updateStatus?.let { Text(it, color = Cyan, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp)) }
         Text("Confidentialité réseau", color = Cream, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 24.dp))
         Text("HOME IPTV peut utiliser un VPN déjà configuré sur Android ou Fire TV. Configure-le dans les réglages système avant de lire tes flux.", color = Muted, modifier = Modifier.padding(top = 5.dp, bottom = 10.dp))
         OutlinedButton(onClick = onVpn) { Text("Ouvrir les réglages VPN") }
