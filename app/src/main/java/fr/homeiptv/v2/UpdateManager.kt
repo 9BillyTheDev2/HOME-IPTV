@@ -57,7 +57,7 @@ internal object UpdateManager {
         withContext(Dispatchers.IO) {
             try {
                 val directory = File(activity.cacheDir, "updates").apply { mkdirs() }
-                val apkFile = File(directory, "home-iptv-\${update.versionCode}.apk")
+                val apkFile = File(directory, "home-iptv-${update.versionCode}.apk")
                 val connection = (URL(update.apkUrl).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 15000
                     readTimeout = 60000
@@ -65,7 +65,7 @@ internal object UpdateManager {
                     requestMethod = "GET"
                 }
                 try {
-                    if (connection.responseCode !in 200..299) error("Téléchargement refusé : HTTP \${connection.responseCode}.")
+                    if (connection.responseCode !in 200..299) error("Téléchargement refusé : HTTP ${connection.responseCode}.")
                     val length = connection.contentLengthLong
                     if (length > MAX_APK_BYTES) error("L’APK dépasse la taille autorisée.")
                     connection.inputStream.use { input ->
@@ -105,14 +105,14 @@ internal object UpdateManager {
                         activity.startActivity(
                             Intent(
                                 Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                                Uri.parse("package:\${activity.packageName}")
+                                Uri.parse("package:${activity.packageName}")
                             )
                         )
                         return@withContext "Autorise HOME IPTV à installer les mises à jour dans les réglages Android, puis relance la vérification."
                     }
                     val uri = FileProvider.getUriForFile(
                         activity,
-                        "\${activity.packageName}.fileprovider",
+                        "${activity.packageName}.fileprovider",
                         apkFile
                     )
                     val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -138,7 +138,7 @@ internal object UpdateManager {
             setRequestProperty("User-Agent", "HOME-IPTV-Android")
         }
         return try {
-            if (connection.responseCode !in 200..299) error("GitHub répond HTTP \${connection.responseCode}.")
+            if (connection.responseCode !in 200..299) error("GitHub répond HTTP ${connection.responseCode}.")
             connection.inputStream.use { it.readBytes() }
         } finally {
             connection.disconnect()
