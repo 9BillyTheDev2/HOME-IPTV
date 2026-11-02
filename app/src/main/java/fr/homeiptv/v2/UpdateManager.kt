@@ -23,7 +23,7 @@ internal data class UpdateInfo(
 )
 
 internal object UpdateManager {
-    private const val CURRENT_VERSION_CODE = 4
+    private const val CURRENT_VERSION_CODE = BuildConfig.VERSION_CODE
     private const val API = "https://api.github.com/repos/9BillyTheDev2/HOME-IPTV/releases?per_page=20"
     private const val MAX_APK_BYTES = 120L * 1024L * 1024L
 
