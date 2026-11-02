@@ -8,7 +8,7 @@ Prototype natif Android/Fire TV : interface HOME IPTV, navigation à la téléco
 - L’app lit les playlists M3U/M3U8 et l’API Xtream côté appareil. Les libellés de groupes français comme FR/French/France sont normalisés et les entrées ayant exactement la même URL sont dédupliquées.
 - Les flux sont lus par AndroidX Media3. La lecture dépend des formats réellement servis et décodés par l’appareil.
 - Un raccourci ouvre les réglages VPN Android/Fire TV. HOME IPTV ne fournit pas son propre tunnel VPN ; il utilise celui déjà configuré dans le système.
-- Les sources M3U, les API Xtream et les flux de lecture doivent utiliser HTTPS. Le trafic HTTP en clair est refusé par l’application, car Xtream place les identifiants dans les requêtes. Demander au fournisseur une adresse HTTPS officielle ; ne pas deviner un port HTTPS alternatif.
+- Les sources M3U, l’API Xtream et les flux acceptent HTTP ou HTTPS. En HTTP, les identifiants Xtream et le contenu des flux circulent sans chiffrement ; privilégier HTTPS lorsque le fournisseur le propose.
 - Recherche dans les chaînes/groupes M3U, catégories Xtream, films, séries et épisodes ; les accents sont ignorés.
 - Pas d’enregistrement, d’administration, de partage de services ni de bibliothèque personnelle. Pas encore de guide EPG.
 - Le logo retenu est intégré à l’application.
