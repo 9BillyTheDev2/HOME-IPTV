@@ -3,6 +3,7 @@ package fr.homeiptv.v2
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.LruCache
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
@@ -53,6 +54,10 @@ private val Cream = Color(0xFFF2EBDD)
 private val Muted = Color(0xFFABB4B8)
 private val Rust = Color(0xFFC95132)
 private val Cyan = Color(0xFF65C9D7)
+
+private val artworkCache = object : LruCache<String, Bitmap>(8 * 1024 * 1024) {
+    override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+}
 
 class MainActivity : ComponentActivity() {
     private val resumeTick = mutableStateOf(0)
@@ -652,6 +657,7 @@ private fun NetworkArtwork(url: String?, modifier: Modifier = Modifier, landscap
 }
 
 private fun loadArtwork(url: String): Bitmap? {
+    artworkCache.get(url)?.let { return it }
     val connection = (URL(url).openConnection() as? HttpURLConnection) ?: return null
     connection.connectTimeout = 6000
     connection.readTimeout = 6000
@@ -675,6 +681,7 @@ private fun loadArtwork(url: String): Bitmap? {
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         val sample = maxOf(1, maxOf(bounds.outWidth / 600, bounds.outHeight / 700))
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+            ?.also { artworkCache.put(url, it) }
     } catch (_: Exception) {
         return null
     } finally { connection.disconnect() }
