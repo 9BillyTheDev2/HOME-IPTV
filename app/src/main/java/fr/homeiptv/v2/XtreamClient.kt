@@ -26,7 +26,7 @@ class XtreamClient(
     private val username: String,
     private val password: String
 ) {
-    private val base = normalizeHttpsServer(server)
+    private val base = normalizeServer(server)
 
     suspend fun accountIsValid(): Boolean = (request() as? JSONObject)?.optJSONObject("user_info")?.optString("auth") == "1"
 
@@ -123,11 +123,11 @@ class XtreamClient(
         }
     }
 
-    private fun normalizeHttpsServer(value: String): String {
+    private fun normalizeServer(value: String): String {
         val clean = value.trim().substringBefore('?').substringBefore('#').trimEnd('/')
         val uri = Uri.parse(clean)
-        require(uri.scheme.equals("https", ignoreCase = true) && !uri.host.isNullOrBlank()) {
-            "Adresse Xtream invalide : une URL HTTPS complète est requise."
+        require((uri.scheme.equals("http", ignoreCase = true) || uri.scheme.equals("https", ignoreCase = true)) && !uri.host.isNullOrBlank()) {
+            "Adresse Xtream invalide : une URL HTTP ou HTTPS complète est requise."
         }
         return if (clean.endsWith("/player_api.php", ignoreCase = true)) {
             clean.dropLast("/player_api.php".length).trimEnd('/')
