@@ -12,7 +12,7 @@ data class PlaylistEntry(
 
 /** M3U/M3U8 parser with bounded streaming input for large remote playlists. */
 object M3uParser {
-    const val MAX_PLAYLIST_CHARACTERS = 64L * 1024 * 1024
+    const val MAX_PLAYLIST_CHARACTERS = 512L * 1024 * 1024
     private const val MAX_ENTRIES = 50_000
     private const val MAX_LINE_LENGTH = 16 * 1024
     const val playlistTooLargeMessage =
@@ -27,7 +27,7 @@ object M3uParser {
      * Reads bounded lines incrementally: neither the full response nor an unbounded line is
      * accumulated in memory. The caller owns and closes [reader].
      */
-    fun parse(reader: BufferedReader): List<PlaylistEntry> {
+    fun parse(reader: BufferedReader, includeEntry: (PlaylistEntry) -> Boolean = { true }, stopAfterEntries: Int? = null): List<PlaylistEntry> {
         val out = ArrayList<PlaylistEntry>()
         val seenUrls = HashSet<String>()
         var title: String? = null
@@ -99,11 +99,13 @@ object M3uParser {
                 value.startsWith("#") -> Unit
                 title != null && (value.startsWith("https://", ignoreCase = true) || value.startsWith("http://", ignoreCase = true)) -> {
                     val urlKey = value.trim()
-                    if (seenUrls.add(urlKey)) {
+                    val cleanTitle = title!!.ifBlank { "Chaîne" }
+                    val group = normalizeFrenchLabel(attrs["group-title"]?.ifBlank { null } ?: extGroup ?: "Autres")
+                    val entry = PlaylistEntry(cleanTitle, value, group, attrs["tvg-logo"], attrs["tvg-id"])
+                    if (includeEntry(entry) && seenUrls.add(urlKey)) {
                         if (out.size >= MAX_ENTRIES) error(playlistTooLargeMessage)
-                        val cleanTitle = title!!.ifBlank { "Chaîne" }
-                        val group = normalizeFrenchLabel(attrs["group-title"]?.ifBlank { null } ?: extGroup ?: "Autres")
-                        out += PlaylistEntry(cleanTitle, value, group, attrs["tvg-logo"], attrs["tvg-id"])
+                        out += entry
+                        if (stopAfterEntries != null && out.size >= stopAfterEntries) return out
                     }
                     title = null
                 }
