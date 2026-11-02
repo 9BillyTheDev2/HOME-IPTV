@@ -785,17 +785,23 @@ private fun variantTitleKey(value: String): String =
 private fun qualityOrLanguageHint(value: String): String? =
     variantTagPattern.find(value)?.value?.uppercase()
 
+private val genericVariantTitles = setOf("", "chaine", "sans titre", "untitled", "unknown")
+
 private fun groupM3uVariants(entries: List<PlaylistEntry>): List<M3uVariantGroup> =
     entries.groupBy { entry ->
+        val titleKey = variantTitleKey(entry.name)
         entry.tvgId?.trim()?.takeIf { it.isNotBlank() }
             ?.let { "id:${normalizeSearchText(it)}" }
-            ?: "title:${variantTitleKey(entry.name)}"
+            ?: if (titleKey in genericVariantTitles) "url:${entry.url}" else "title:$titleKey"
     }.map { (key, variants) -> M3uVariantGroup(key, variants) }
 
 private fun groupXtreamVariants(items: List<XtreamItem>, section: String): List<XtreamVariantGroup> =
     items.groupBy { item ->
-        val year = if (section == "TV en direct") "" else item.year.orEmpty()
-        "title:${variantTitleKey(item.name)}|year:$year"
+        val titleKey = variantTitleKey(item.name)
+        if (titleKey in genericVariantTitles) "id:${item.id}" else {
+            val year = if (section == "TV en direct") "" else item.year.orEmpty()
+            "title:$titleKey|year:$year"
+        }
     }.map { (key, variants) -> XtreamVariantGroup(key, variants) }
 
 private fun normalizeSearchText(value: String): String =
