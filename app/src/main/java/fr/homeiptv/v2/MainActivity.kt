@@ -85,13 +85,19 @@ private fun HomeApp(store: SourceStore) {
         try {
             if (profile.kind == "M3U") {
                 requireHttpEndpoint(profile.endpoint)
-                val raw = withContext(Dispatchers.IO) {
+                val parsed = withContext(Dispatchers.IO) {
                     val connection = URL(profile.endpoint).openConnection() as HttpURLConnection
                     connection.connectTimeout = 12000; connection.readTimeout = 20000
-                    try { if (connection.responseCode !in 200..299) error("Erreur HTTP ${connection.responseCode}"); connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() } }
-                    finally { connection.disconnect() }
+                    try {
+                        if (connection.responseCode !in 200..299) error("Erreur HTTP ${connection.responseCode}")
+                        if (connection.contentLengthLong > M3uParser.MAX_PLAYLIST_CHARACTERS) {
+                            error(M3uParser.playlistTooLargeMessage)
+                        }
+                        connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                            M3uParser.parse(reader).filter { m3uSection(it) == selectedTab }
+                        }
+                    } finally { connection.disconnect() }
                 }
-                val parsed = M3uParser.parse(raw).filter { m3uSection(it) == selectedTab }
                 records = parsed
                 if (parsed.isEmpty()) message = "Aucun contenu dans cette section de la playlist."
             } else {
@@ -223,12 +229,18 @@ private fun HomeApp(store: SourceStore) {
                     val profile = SourceProfile(UUID.randomUUID().toString(), name, kind, endpoint, user, pass)
                     if (kind == "M3U") {
                         requireHttpEndpoint(endpoint)
-                        val raw = withContext(Dispatchers.IO) {
+                        val entries = withContext(Dispatchers.IO) {
                             val c = URL(endpoint).openConnection() as HttpURLConnection
                             c.connectTimeout = 12000; c.readTimeout = 20000
-                            try { if (c.responseCode !in 200..299) error("La playlist répond HTTP ${c.responseCode}"); c.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() } } finally { c.disconnect() }
+                            try {
+                                if (c.responseCode !in 200..299) error("La playlist répond HTTP ${c.responseCode}")
+                                if (c.contentLengthLong > M3uParser.MAX_PLAYLIST_CHARACTERS) {
+                                    error(M3uParser.playlistTooLargeMessage)
+                                }
+                                c.inputStream.bufferedReader(Charsets.UTF_8).use { M3uParser.parse(it) }
+                            } finally { c.disconnect() }
                         }
-                        if (M3uParser.parse(raw).isEmpty()) error("Le lien répond, mais aucune entrée M3U valide n’a été trouvée.")
+                        if (entries.isEmpty()) error("Le lien répond, mais aucune entrée M3U valide n’a été trouvée.")
                     } else {
                         val client = XtreamClient(endpoint, user, pass)
                         if (!client.accountIsValid()) error("Le fournisseur a refusé les identifiants Xtream.")
