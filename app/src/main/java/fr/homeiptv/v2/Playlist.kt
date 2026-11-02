@@ -31,7 +31,7 @@ object M3uParser {
                 }
                 line.startsWith("#EXTGRP:", ignoreCase = true) -> extGroup = line.substringAfter(':').trim()
                 line.startsWith("#") -> Unit
-                title != null && line.startsWith("https://", ignoreCase = true) -> {
+                title != null && (line.startsWith("https://", ignoreCase = true) || line.startsWith("http://", ignoreCase = true)) -> {
                     val cleanTitle = title!!.ifBlank { "Chaîne" }
                     val group = normalizeFrenchLabel(attrs["group-title"]?.ifBlank { null } ?: extGroup ?: "Autres")
                     out += PlaylistEntry(cleanTitle, line, group, attrs["tvg-logo"], attrs["tvg-id"])
