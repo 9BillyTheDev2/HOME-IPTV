@@ -13,9 +13,16 @@ Prototype natif Android/Fire TV : interface HOME IPTV, navigation à la téléco
 - Pas d’enregistrement, d’administration, de partage de services ni de bibliothèque personnelle. Pas encore de guide EPG.
 - Le logo retenu est intégré à l’application.
 
-## Génération APK
+## Mises à jour APK
 
-Le workflow GitHub Actions construit l’APK debug automatiquement après l’envoi du code sur la branche principale. L’APK est récupérable comme artefact dans l’exécution correspondante.
+- Chaque modification du code applicatif sur `main` déclenche une compilation.
+- Quand la clé de signature est configurée dans les secrets GitHub Actions, le workflow crée aussi une **Release en brouillon**. Elle n’est pas visible par l’application tant que le propriétaire ne l’a pas vérifiée et publiée.
+- HOME IPTV vérifie les Releases publiées au démarrage et depuis Paramètres. L’application affiche la version disponible, attend l’accord de l’utilisateur, télécharge l’APK en HTTPS et vérifie son empreinte SHA-256 avant d’ouvrir l’installateur Android.
+- Android demande ensuite une confirmation d’installation. Si le téléchargement, l’empreinte ou l’installation échoue, la version installée reste en place.
+- La clé de signature doit rester dans les secrets GitHub Actions ; elle ne doit jamais être ajoutée au dépôt. Les secrets requis sont `HOME_IPTV_KEYSTORE_BASE64`, `HOME_IPTV_KEYSTORE_PASSWORD`, `HOME_IPTV_KEY_ALIAS` et `HOME_IPTV_KEY_PASSWORD`.
+- Les APK debug déjà distribuées utilisent une clé CI temporaire. Le passage à la nouvelle signature stable nécessitera une réinstallation manuelle unique ; Android ne peut pas mettre à jour une app signée avec une autre clé.
+
+Le build debug reste récupérable comme artefact dans l’exécution GitHub Actions.
 
 ## Environnement
 
