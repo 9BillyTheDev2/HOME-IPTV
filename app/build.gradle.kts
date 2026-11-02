@@ -11,11 +11,27 @@ android {
         applicationId = "fr.homeiptv.v2"
         minSdk = 23
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.1.2-alpha"
+        versionCode = 4
+        versionName = "0.1.3-alpha"
     }
 
-    buildFeatures { compose = true }
+    val releaseStorePath = System.getenv("HOME_IPTV_KEYSTORE_PATH")
+    if (releaseStorePath != null) {
+        val releaseSigning = signingConfigs.create("release") {
+            storeFile = file(releaseStorePath)
+            storePassword = System.getenv("HOME_IPTV_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("HOME_IPTV_KEY_ALIAS")
+            keyPassword = System.getenv("HOME_IPTV_KEY_PASSWORD")
+        }
+        buildTypes.getByName("release") {
+            signingConfig = releaseSigning
+        }
+    }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
