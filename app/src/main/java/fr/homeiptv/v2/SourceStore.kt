@@ -14,6 +14,16 @@ import javax.crypto.spec.GCMParameterSpec
 
 data class SourceProfile(val id: String, val name: String, val kind: String, val endpoint: String, val user: String = "", val password: String = "")
 
+data class RecentPlayback(
+    val kind: String,
+    val title: String,
+    val subtitle: String,
+    val image: String?,
+    val url: String,
+    val positionMs: Long = 0L,
+    val category: String = ""
+)
+
 /** Private device-local profile storage. Secrets are encrypted with an Android Keystore AES-GCM key. */
 class SourceStore(context: Context) {
     private val prefs = context.getSharedPreferences("home_iptv_sources", Context.MODE_PRIVATE)
@@ -50,6 +60,32 @@ class SourceStore(context: Context) {
         val arr = JSONArray()
         entries.forEach { p -> arr.put(JSONObject().put("id", p.id).put("name", p.name).put("kind", p.kind).put("endpoint", p.endpoint).put("secret", encrypt(p.user + '\u0000' + p.password))) }
         prefs.edit().putString("profiles", arr.toString()).putString("active", entries.firstOrNull()?.id).apply()
+    }
+
+    fun recents(): List<RecentPlayback> = runCatching {
+        val encrypted = prefs.getString("recent_playback", null).orEmpty()
+        if (encrypted.isBlank()) return@runCatching emptyList()
+        val arr = JSONArray(decrypt(encrypted))
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            val kind = o.optString("kind")
+            val title = o.optString("title")
+            val url = o.optString("url")
+            if (kind.isBlank() || title.isBlank() || url.isBlank()) return@mapNotNull null
+            RecentPlayback(kind, title, o.optString("subtitle"), o.optString("image").ifBlank { null }, url,
+                o.optLong("positionMs"), o.optString("category"))
+        }
+    }.getOrDefault(emptyList())
+
+    fun saveRecent(item: RecentPlayback) {
+        val entries = recents().filterNot { it.kind == item.kind }.toMutableList()
+        entries.add(0, item)
+        val arr = JSONArray()
+        entries.take(3).forEach { recent ->
+            arr.put(JSONObject().put("kind", recent.kind).put("title", recent.title).put("subtitle", recent.subtitle)
+                .put("image", recent.image).put("url", recent.url).put("positionMs", recent.positionMs).put("category", recent.category))
+        }
+        prefs.edit().putString("recent_playback", encrypt(arr.toString())).apply()
     }
 
     private fun key(): SecretKey {
