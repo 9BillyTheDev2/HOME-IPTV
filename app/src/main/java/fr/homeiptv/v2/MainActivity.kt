@@ -59,6 +59,10 @@ private val artworkCache = object : LruCache<String, Bitmap>(8 * 1024 * 1024) {
     override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
 }
 
+private data class M3uVariantGroup(val key: String, val entries: List<PlaylistEntry>)
+private data class XtreamVariantGroup(val key: String, val items: List<XtreamItem>)
+private data class VariantChoice(val title: String, val details: String, val onSelect: () -> Unit)
+
 class MainActivity : ComponentActivity() {
     private val resumeTick = mutableStateOf(0)
     private lateinit var sourceStore: SourceStore
@@ -451,6 +455,7 @@ private fun CatalogScreen(
     onPlayEpisode: (XtreamItem) -> Unit
 ) {
     var searchText by remember(section) { mutableStateOf("") }
+    var variantChoices by remember(section) { mutableStateOf<List<VariantChoice>?>(null) }
     val query = normalizeSearchText(searchText.trim())
     LaunchedEffect(query, sourceKind) {
         if (sourceKind == "Xtream" && query.length >= 2) {
@@ -467,8 +472,40 @@ private fun CatalogScreen(
         val groupMatches = query.isNotBlank() || selectedGroup == null || selectedGroup == entry.group
         groupMatches && (query.isBlank() || normalizeSearchText(entry.name + " " + entry.group).contains(query))
     }
+    val groupedM3u = remember(filteredM3u) { groupM3uVariants(filteredM3u) }
+    val displayedItems = if (query.isNotBlank()) searchResults else records.filterIsInstance<XtreamItem>()
+    val groupedXtream = remember(displayedItems, section) { groupXtreamVariants(displayedItems, section) }
     val categoryName: (XtreamItem) -> String = { item ->
         categories.firstOrNull { item.categoryId in it.ids }?.name ?: selectedGroup ?: "Autres"
+    }
+    fun chooseM3uGroup(group: M3uVariantGroup) {
+        if (group.entries.size == 1) {
+            onPlayM3u(group.entries.first())
+        } else {
+            variantChoices = group.entries.mapIndexed { index, entry ->
+                val descriptors = listOf(entry.group, qualityOrLanguageHint(entry.name)).filterNotNull().filter { it.isNotBlank() }
+                VariantChoice(entry.name, descriptors.distinct().joinToString(" · ").ifBlank { "Flux alternatif ${index + 1}" }) {
+                    onPlayM3u(entry)
+                }
+            }
+        }
+    }
+    fun chooseXtreamGroup(group: XtreamVariantGroup) {
+        if (group.items.size == 1) {
+            val item = group.items.first()
+            if (section == "Séries") onSeries(item) else onPlayXtream(item)
+        } else {
+            variantChoices = group.items.mapIndexed { index, item ->
+                val descriptors = listOf(
+                    categoryName(item),
+                    item.year,
+                    item.extension?.let { it.uppercase().removePrefix(".") }
+                ).filterNotNull().filter { it.isNotBlank() }
+                VariantChoice(item.name, descriptors.distinct().joinToString(" · ").ifBlank { "Flux alternatif ${index + 1}" }) {
+                    if (section == "Séries") onSeries(item) else onPlayXtream(item)
+                }
+            }
+        }
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp)) {
@@ -512,18 +549,20 @@ private fun CatalogScreen(
                     if (episodes.isEmpty() && !loading) Text("Aucun épisode trouvé.", color = Muted, modifier = Modifier.padding(16.dp))
                     LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(episodes, key = { it.id }) { item ->
-                            CatalogGridCard(item.name, item.plot ?: item.year.orEmpty(), item.logo, landscape = true) { onPlayEpisode(item) }
+                            CatalogGridCard(item.name, item.plot ?: item.year.orEmpty(), item.logo, landscape = false) { onPlayEpisode(item) }
                         }
                     }
                 } else if (sourceKind == "M3U") {
                     if (filteredM3u.isEmpty() && !loading) Text(if (message.isNotBlank()) message else "Aucun contenu trouvé.", color = Muted, modifier = Modifier.padding(16.dp))
                     LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(filteredM3u, key = { it.url }) { entry ->
-                            CatalogGridCard(entry.name, entry.group, entry.logo, landscape = section == "TV en direct") { onPlayM3u(entry) }
+                        items(groupedM3u, key = { it.key }) { group ->
+                            val entry = group.entries.first()
+                            CatalogGridCard(entry.name, entry.group, entry.logo, landscape = section == "TV en direct", variantCount = group.entries.size) {
+                                chooseM3uGroup(group)
+                            }
                         }
                     }
                 } else {
-                    val displayedItems = if (query.isNotBlank()) searchResults else records.filterIsInstance<XtreamItem>()
                     if (displayedItems.isEmpty() && !loading && !searchLoading) {
                         val text = when {
                             message.isNotBlank() -> message
@@ -534,10 +573,11 @@ private fun CatalogScreen(
                         Text(text, color = Muted, modifier = Modifier.padding(16.dp))
                     } else {
                         LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(displayedItems, key = { it.id }) { item ->
+                            items(groupedXtream, key = { it.key }) { group ->
+                                val item = group.items.first()
                                 val subtitle = if (query.isNotBlank()) categoryName(item) else (item.year ?: categoryName(item))
-                                CatalogGridCard(item.name, subtitle, item.logo, landscape = section == "TV en direct") {
-                                    if (section == "Séries") onSeries(item) else onPlayXtream(item)
+                                CatalogGridCard(item.name, subtitle, item.logo, landscape = section == "TV en direct", variantCount = group.items.size) {
+                                    chooseXtreamGroup(group)
                                 }
                             }
                         }
@@ -545,6 +585,28 @@ private fun CatalogScreen(
                 }
             }
         }
+    }
+    variantChoices?.let { choices ->
+        AlertDialog(
+            onDismissRequest = { variantChoices = null },
+            title = { Text("Plusieurs versions disponibles") },
+            text = {
+                Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                    choices.forEach { choice ->
+                        TextButton(
+                            onClick = { variantChoices = null; choice.onSelect() },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.fillMaxWidth()) {
+                                Text(choice.title, color = Cream, fontWeight = FontWeight.SemiBold)
+                                Text(choice.details, color = Muted, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { variantChoices = null }) { Text("Fermer") } }
+        )
     }
 }
 
@@ -622,7 +684,7 @@ private fun RecentCard(item: RecentPlayback, onClick: () -> Unit) {
     Column(
         Modifier.width(220.dp).clip(RoundedCornerShape(14.dp)).background(Panel).clickable(onClick = onClick).focusable().padding(10.dp)
     ) {
-        NetworkArtwork(item.image, Modifier.fillMaxWidth().height(132.dp), landscape = false)
+        NetworkArtwork(item.image, Modifier.fillMaxWidth().height(132.dp), landscape = item.kind == "live")
         Text(label, color = Cyan, fontSize = 10.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 9.dp))
         Text(item.title, color = Cream, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, modifier = Modifier.padding(top = 4.dp))
         if (item.subtitle.isNotBlank()) Text(item.subtitle, color = Muted, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
@@ -634,9 +696,29 @@ private fun RecentCard(item: RecentPlayback, onClick: () -> Unit) {
 }
 
 @Composable
-private fun CatalogGridCard(title: String, subtitle: String, image: String?, landscape: Boolean, onClick: () -> Unit) {
+private fun CatalogGridCard(
+    title: String,
+    subtitle: String,
+    image: String?,
+    landscape: Boolean,
+    variantCount: Int = 1,
+    onClick: () -> Unit
+) {
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Panel).clickable(onClick = onClick).focusable().padding(8.dp)) {
-        NetworkArtwork(image, Modifier.fillMaxWidth().height(if (landscape) 92.dp else 174.dp), landscape)
+        Box(Modifier.fillMaxWidth().height(if (landscape) 92.dp else 174.dp).clip(RoundedCornerShape(9.dp))) {
+            NetworkArtwork(image, Modifier.fillMaxSize(), landscape)
+            if (variantCount > 1) {
+                Text(
+                    "$variantCount versions",
+                    color = Cream,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)
+                        .clip(RoundedCornerShape(10.dp)).background(Ink.copy(alpha = .9f))
+                        .padding(horizontal = 8.dp, vertical = 5.dp)
+                )
+            }
+        }
         Text(title, color = Cream, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, modifier = Modifier.padding(top = 7.dp))
         if (subtitle.isNotBlank()) Text(subtitle, color = Muted, fontSize = 11.sp, maxLines = 1)
     }
@@ -651,7 +733,14 @@ private fun NetworkArtwork(url: String?, modifier: Modifier = Modifier, landscap
         }
     }
     Box(modifier.clip(RoundedCornerShape(9.dp)).background(Color(0xFF252B30)), contentAlignment = Alignment.Center) {
-        bitmap?.let { Image(it, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+        bitmap?.let {
+            Image(
+                it,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize().then(if (landscape) Modifier.padding(8.dp) else Modifier),
+                contentScale = if (landscape) ContentScale.Fit else ContentScale.Crop
+            )
+        }
         if (bitmap == null) Text(if (landscape) "▶" else "HOME IPTV", color = if (landscape) Rust else Muted, fontSize = if (landscape) 30.sp else 11.sp)
     }
 }
@@ -686,6 +775,28 @@ private fun loadArtwork(url: String): Bitmap? {
         return null
     } finally { connection.disconnect() }
 }
+
+private val variantTagPattern = Regex("(?i)\\b(?:full\\s*hd|8k|4k|uhd|fhd|hd|sd|2160p|1080p|720p|480p|hevc|h\\.?265|x265)\\b")
+
+private fun variantTitleKey(value: String): String =
+    normalizeSearchText(value.replace(variantTagPattern, " "))
+        .replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+
+private fun qualityOrLanguageHint(value: String): String? =
+    variantTagPattern.find(value)?.value?.uppercase()
+
+private fun groupM3uVariants(entries: List<PlaylistEntry>): List<M3uVariantGroup> =
+    entries.groupBy { entry ->
+        entry.tvgId?.trim()?.takeIf { it.isNotBlank() }
+            ?.let { "id:${normalizeSearchText(it)}" }
+            ?: "title:${variantTitleKey(entry.name)}"
+    }.map { (key, variants) -> M3uVariantGroup(key, variants) }
+
+private fun groupXtreamVariants(items: List<XtreamItem>, section: String): List<XtreamVariantGroup> =
+    items.groupBy { item ->
+        val year = if (section == "TV en direct") "" else item.year.orEmpty()
+        "title:${variantTitleKey(item.name)}|year:$year"
+    }.map { (key, variants) -> XtreamVariantGroup(key, variants) }
 
 private fun normalizeSearchText(value: String): String =
     Normalizer.normalize(value.lowercase(), Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "")

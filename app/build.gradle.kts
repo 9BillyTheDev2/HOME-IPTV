@@ -11,8 +11,8 @@ android {
         applicationId = "fr.homeiptv.v2"
         minSdk = 23
         targetSdk = 35
-        versionCode = System.getenv("HOME_IPTV_VERSION_CODE")?.toIntOrNull() ?: 8
-        versionName = System.getenv("HOME_IPTV_VERSION_NAME") ?: "0.1.7-alpha"
+        versionCode = System.getenv("HOME_IPTV_VERSION_CODE")?.toIntOrNull() ?: 9
+        versionName = System.getenv("HOME_IPTV_VERSION_NAME") ?: "0.1.8-alpha"
     }
 
     val releaseStorePath = System.getenv("HOME_IPTV_KEYSTORE_PATH")
