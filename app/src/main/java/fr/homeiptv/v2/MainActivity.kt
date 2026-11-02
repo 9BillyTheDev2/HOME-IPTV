@@ -211,7 +211,7 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                         }
                     },
                     onSelectGroup = { name ->
-                        selectedGroup = name
+                        selectedGroup = name.ifBlank { null }
                         seriesEpisodes = null
                         selectedSeries = null
                         if (active?.kind == "Xtream") {
