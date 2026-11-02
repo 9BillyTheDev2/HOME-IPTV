@@ -1,0 +1,76 @@
+package fr.homeiptv.v2
+
+import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
+import org.json.JSONArray
+import org.json.JSONObject
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
+
+data class SourceProfile(val id: String, val name: String, val kind: String, val endpoint: String, val user: String = "", val password: String = "")
+
+/** Private device-local profile storage. Secrets are encrypted with an Android Keystore AES-GCM key. */
+class SourceStore(context: Context) {
+    private val prefs = context.getSharedPreferences("home_iptv_sources", Context.MODE_PRIVATE)
+    private val alias = "home_iptv_profile_key_v1"
+
+    fun all(): List<SourceProfile> = runCatching {
+        val arr = JSONArray(prefs.getString("profiles", "[]"))
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            val secret = decrypt(o.optString("secret"))
+            val parts = secret.split('\u0000', limit = 2)
+            SourceProfile(o.getString("id"), o.optString("name"), o.optString("kind"), o.optString("endpoint"), parts.firstOrNull().orEmpty(), parts.getOrNull(1).orEmpty())
+        }
+    }.getOrDefault(emptyList())
+
+    fun save(profile: SourceProfile) {
+        val entries = all().filterNot { it.id == profile.id }.toMutableList().apply { add(profile) }
+        val arr = JSONArray()
+        entries.forEach { p ->
+            arr.put(JSONObject().put("id", p.id).put("name", p.name).put("kind", p.kind).put("endpoint", p.endpoint)
+                .put("secret", encrypt(p.user + '\u0000' + p.password)))
+        }
+        prefs.edit().putString("profiles", arr.toString()).putString("active", profile.id).apply()
+    }
+
+    fun active(): SourceProfile? {
+        val id = prefs.getString("active", null)
+        return all().firstOrNull { it.id == id } ?: all().firstOrNull()
+    }
+
+    fun setActive(id: String) { prefs.edit().putString("active", id).apply() }
+    fun delete(id: String) {
+        val entries = all().filterNot { it.id == id }
+        val arr = JSONArray()
+        entries.forEach { p -> arr.put(JSONObject().put("id", p.id).put("name", p.name).put("kind", p.kind).put("endpoint", p.endpoint).put("secret", encrypt(p.user + '\u0000' + p.password))) }
+        prefs.edit().putString("profiles", arr.toString()).putString("active", entries.firstOrNull()?.id).apply()
+    }
+
+    private fun key(): SecretKey {
+        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (store.getKey(alias, null) as? SecretKey)?.let { return it }
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        generator.init(KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).setRandomizedEncryptionRequired(true).build())
+        return generator.generateKey()
+    }
+    private fun encrypt(value: String): String {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, key())
+        val data = cipher.iv + cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+        return Base64.encodeToString(data, Base64.NO_WRAP)
+    }
+    private fun decrypt(value: String): String {
+        if (value.isBlank()) return ""
+        val data = Base64.decode(value, Base64.NO_WRAP)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, data.copyOfRange(0, 12)))
+        return cipher.doFinal(data.copyOfRange(12, data.size)).toString(Charsets.UTF_8)
+    }
+}
