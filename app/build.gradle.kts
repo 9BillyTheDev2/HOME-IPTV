@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "fr.homeiptv.v2"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "fr.homeiptv.v2"
