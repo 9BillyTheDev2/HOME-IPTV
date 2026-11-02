@@ -66,7 +66,8 @@ class XtreamClient(
     }
 
     suspend fun episodes(seriesId: String): List<XtreamItem> = withContext(Dispatchers.IO) {
-        val json = request(mapOf("action" to "get_series_info", "series_id" to seriesId))
+        val json = request(mapOf("action" to "get_series_info", "series_id" to seriesId)) as? JSONObject
+            ?: return@withContext emptyList()
         val seasons = json.optJSONObject("episodes") ?: return@withContext emptyList()
         buildList {
             val keys = seasons.keys()
