@@ -84,7 +84,7 @@ private fun HomeApp(store: SourceStore) {
         loading = true
         try {
             if (profile.kind == "M3U") {
-                requireHttpsEndpoint(profile.endpoint)
+                requireHttpEndpoint(profile.endpoint)
                 val raw = withContext(Dispatchers.IO) {
                     val connection = URL(profile.endpoint).openConnection() as HttpURLConnection
                     connection.connectTimeout = 12000; connection.readTimeout = 20000
@@ -222,7 +222,7 @@ private fun HomeApp(store: SourceStore) {
                 try {
                     val profile = SourceProfile(UUID.randomUUID().toString(), name, kind, endpoint, user, pass)
                     if (kind == "M3U") {
-                        requireHttpsEndpoint(endpoint)
+                        requireHttpEndpoint(endpoint)
                         val raw = withContext(Dispatchers.IO) {
                             val c = URL(endpoint).openConnection() as HttpURLConnection
                             c.connectTimeout = 12000; c.readTimeout = 20000
@@ -244,10 +244,10 @@ private fun HomeApp(store: SourceStore) {
 
 private fun Activity.play(url: String) { startActivity(Intent(this, PlaybackActivity::class.java).putExtra(PlaybackActivity.EXTRA_URL, url)) }
 
-private fun requireHttpsEndpoint(value: String) {
+private fun requireHttpEndpoint(value: String) {
     val uri = android.net.Uri.parse(value.trim())
-    require(uri.scheme.equals("https", ignoreCase = true) && !uri.host.isNullOrBlank()) {
-        "Cette source doit utiliser une adresse HTTPS complète. Les liens HTTP ne sont pas acceptés."
+    require((uri.scheme.equals("http", ignoreCase = true) || uri.scheme.equals("https", ignoreCase = true)) && !uri.host.isNullOrBlank()) {
+        "Entre une adresse HTTP ou HTTPS complète avec un nom de serveur valide."
     }
 }
 
@@ -318,15 +318,15 @@ private fun AddSourceDialog(onDismiss: () -> Unit, onSave: (String, String, Stri
                 OutlinedTextField(user, { user = it }, label = { Text("Identifiant") }, singleLine = true)
                 OutlinedTextField(pass, { pass = it }, label = { Text("Mot de passe") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
             }
-            Text("Les connexions HTTPS sont obligatoires pour protéger les identifiants et les flux.", color = Muted, fontSize = 11.sp)
+            Text("HTTP et HTTPS sont acceptés. En HTTP, les identifiants Xtream et les flux ne sont pas chiffrés.", color = Muted, fontSize = 11.sp)
             validationError?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp) }
         }
     }, confirmButton = { TextButton(onClick = {
         val uri = android.net.Uri.parse(endpoint.trim())
-        val validHttpsUrl = uri.scheme.equals("https", true) && !uri.host.isNullOrBlank()
+        val validHttpUrl = (uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) && !uri.host.isNullOrBlank()
         validationError = when {
             name.isBlank() -> "Donne un nom à cette source."
-            !validHttpsUrl -> "Entre une adresse HTTPS complète. Les liens HTTP ne sont pas acceptés."
+            !validHttpUrl -> "Entre une adresse HTTP ou HTTPS complète avec un nom de serveur valide."
             kind == "Xtream" && (user.isBlank() || pass.isBlank()) -> "Renseigne l’identifiant et le mot de passe Xtream."
             else -> null
         }
