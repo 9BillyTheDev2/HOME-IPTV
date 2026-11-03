@@ -1618,3 +1618,4 @@ private fun CatalogRow(title: String, subtitle: String, logo: String?, onClick: 
         Column(Modifier.weight(1f)) { Text(title, color = Cream, fontWeight = FontWeight.Medium); if (subtitle.isNotBlank()) Text(subtitle, color = Muted, fontSize = 11.sp) }
         Text(if (logo.isNullOrBlank()) "▶" else "▶", color = Rust, fontSize = 18.sp)
     }
+}
