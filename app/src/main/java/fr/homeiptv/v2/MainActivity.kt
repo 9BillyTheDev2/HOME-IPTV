@@ -7,6 +7,7 @@ import android.util.LruCache
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
@@ -65,6 +66,14 @@ private val artworkCache = object : LruCache<String, Bitmap>(8 * 1024 * 1024) {
     override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
 }
 
+@Suppress("DEPRECATION")
+internal fun Activity.applyImmersiveMode() {
+    window.decorView.systemUiVisibility =
+        View.SYSTEM_UI_FLAG_FULLSCREEN or
+            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+}
+
 private data class M3uVariantGroup(val key: String, val entries: List<PlaylistEntry>)
 private data class XtreamVariantGroup(val key: String, val items: List<XtreamItem>)
 private data class VariantChoice(val title: String, val details: String, val onSelect: () -> Unit)
@@ -75,13 +84,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyImmersiveMode()
         sourceStore = SourceStore(this)
         setContent { HomeApp(sourceStore, resumeTick.value) }
     }
 
     override fun onResume() {
         super.onResume()
+        applyImmersiveMode()
         if (::sourceStore.isInitialized) resumeTick.value++
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) applyImmersiveMode()
     }
 }
 

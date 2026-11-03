@@ -42,6 +42,7 @@ class PlaybackActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyImmersiveMode()
         val url = intent.getStringExtra(EXTRA_URL) ?: run { finish(); return }
         val uri = Uri.parse(url)
         if ((!uri.scheme.equals("http", ignoreCase = true) && !uri.scheme.equals("https", ignoreCase = true)) || uri.host.isNullOrBlank()) {
@@ -132,6 +133,11 @@ class PlaybackActivity : Activity() {
             if (position > 0L) exo.seekTo(position)
             exo.playWhenReady = true
         }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) applyImmersiveMode()
     }
 
     override fun onStop() {
