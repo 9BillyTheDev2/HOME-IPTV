@@ -417,7 +417,6 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                 )
             }
             }
-            BottomSceneryBand()
         }
         availableUpdate?.let { update ->
             AlertDialog(
@@ -1352,17 +1351,6 @@ private fun rememberRandomFrontierBackground(): Int {
         }
     }
     return current
-}
-
-@Composable
-private fun BottomSceneryBand() {
-    val compact = LocalConfiguration.current.screenWidthDp < 600
-    val background = rememberRandomFrontierBackground()
-    Box(Modifier.fillMaxWidth().height(if (compact) 18.dp else 34.dp)) {
-        Image(painterResource(background), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        Box(Modifier.fillMaxSize().background(Color(0xAA100D0B)))
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Rust.copy(alpha = .58f)))
-    }
 }
 
 @Composable
