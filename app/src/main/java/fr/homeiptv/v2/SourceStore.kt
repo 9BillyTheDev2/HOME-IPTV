@@ -103,6 +103,21 @@ class SourceStore(context: Context) {
         saveHistory(item)
     }
 
+    /** Updates the resume marker while playback is active, without adding a history event. */
+    fun savePlaybackProgress(item: RecentPlayback) {
+        val entries = recents().filterNot {
+            it.kind == item.kind && it.title == item.title && it.sourceKey == item.sourceKey
+        }.toMutableList()
+        entries.add(0, item)
+        val arr = JSONArray()
+        entries.take(3).forEach { recent ->
+            arr.put(JSONObject().put("kind", recent.kind).put("title", recent.title).put("subtitle", recent.subtitle)
+                .put("image", recent.image).put("url", recent.url).put("positionMs", recent.positionMs).put("category", recent.category)
+                .put("sourceKey", recent.sourceKey).put("watchedAt", recent.watchedAt))
+        }
+        prefs.edit().putString("recent_playback", encrypt(arr.toString())).apply()
+    }
+
     fun history(): List<RecentPlayback> = runCatching {
         val encrypted = prefs.getString("watch_history", null).orEmpty()
         // Preserve the three existing "last watched" entries when users install

@@ -586,8 +586,6 @@ private fun SettingsScreen(
             .padding(horizontal = if (compact) 14.dp else 26.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text("PARAMÈTRES", color = Cyan, fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
-        Text("Ton espace HOME IPTV", color = Cream, fontSize = 26.sp, fontWeight = FontWeight.Bold)
         SettingsSection("Lecteur intégré", "Media3 · lecteur vidéo et audio HOME IPTV") {
             Text("Format des chaînes Xtream en direct", color = Cream, fontWeight = FontWeight.SemiBold)
             PlayerSettingRow(
@@ -1028,7 +1026,7 @@ private fun FilmDetailScreen(
         Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("← Films") }
-            Text(title, color = Cream, fontSize = if (compact) 16.sp else 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.weight(1f))
+            Spacer(Modifier.weight(1f))
         }
         if (loading && details == null && item != null) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Rust)
         if (compact) {
@@ -1046,7 +1044,11 @@ private fun FilmDetailScreen(
                 }
                 details?.cast?.takeIf(String::isNotBlank)?.let { DetailLine("Avec", it) }
                 Column(Modifier.weight(1f).fillMaxWidth().padding(top = 8.dp).verticalScroll(rememberScrollState())) {
-                    if (!plot.isNullOrBlank()) Text(plot, color = Cream.copy(alpha = .88f), fontSize = 14.sp, lineHeight = 20.sp)
+                    if (!plot.isNullOrBlank()) Text(
+                        plot, color = Cream.copy(alpha = .94f), fontSize = 14.sp, lineHeight = 20.sp,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                            .background(Panel.copy(alpha = .78f)).padding(12.dp)
+                    )
                     else if (!loading) Text("Aucun synopsis fourni par cette source.", color = Muted, fontSize = 13.sp)
                 }
             }
@@ -1100,7 +1102,7 @@ private fun SeriesDetailScreen(
         Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("← Séries") }
-            Text(media?.title ?: item.name, color = Cream, fontSize = if (compact) 16.sp else 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.weight(1f))
+            Spacer(Modifier.weight(1f))
         }
         if (loading && details == null) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Rust)
         if (compact) {
@@ -1119,8 +1121,10 @@ private fun SeriesDetailScreen(
                 }
                 val compactPlot = media?.plot ?: item.plot
                 if (!compactPlot.isNullOrBlank()) {
-                    Column(Modifier.fillMaxWidth().heightIn(max = 48.dp).padding(top = 4.dp).verticalScroll(rememberScrollState())) {
-                        Text(compactPlot, color = Cream.copy(alpha = .82f), fontSize = 11.sp, lineHeight = 15.sp)
+                    Column(Modifier.fillMaxWidth().heightIn(max = 48.dp).padding(top = 4.dp)
+                        .clip(RoundedCornerShape(8.dp)).background(Panel.copy(alpha = .76f))
+                        .verticalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 5.dp)) {
+                        Text(compactPlot, color = Cream.copy(alpha = .9f), fontSize = 11.sp, lineHeight = 15.sp)
                     }
                 }
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -1234,18 +1238,19 @@ private fun HeaderNavigation(
         Modifier.fillMaxWidth().background(Color(0xFF12110F))
             .padding(horizontal = if (compact) 8.dp else 18.dp, vertical = if (compact) 5.dp else 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 8.dp)
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 5.dp else 12.dp)
     ) {
         Image(
             painterResource(R.drawable.home_iptv_mark),
             "HOME IPTV",
-            Modifier.size(if (compact) 38.dp else 52.dp).clip(RoundedCornerShape(8.dp)),
+            Modifier.size(if (compact) 48.dp else 60.dp).clip(RoundedCornerShape(8.dp)),
             contentScale = ContentScale.Fit
         )
+        HeaderSeparator(compact)
         Row(
             Modifier.weight(1f).horizontalScroll(rememberScrollState()),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(if (compact) 1.dp else 6.dp)
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 9.dp)
         ) {
             listOf("Accueil", "TV", "Films", "Séries").forEach { label ->
                 val destination = if (label == "TV") "TV en direct" else label
@@ -1259,10 +1264,12 @@ private fun HeaderNavigation(
                     modifier = Modifier.clip(RoundedCornerShape(9.dp))
                         .background(if (selected) Rust else Color.Transparent)
                         .clickable { onNavigate(destination) }.focusable()
-                        .padding(horizontal = if (compact) 8.dp else 14.dp, vertical = if (compact) 9.dp else 11.dp)
+                        .padding(horizontal = if (compact) 10.dp else 16.dp, vertical = if (compact) 10.dp else 12.dp)
                 )
+                if (label != "Séries") HeaderSeparator(compact)
             }
         }
+        HeaderSeparator(compact)
         Text(
             "⚙",
             color = if (section == "Paramètres") Rust else Cream,
@@ -1274,6 +1281,11 @@ private fun HeaderNavigation(
 }
 
 @Composable
+private fun HeaderSeparator(compact: Boolean) {
+    Box(Modifier.width(1.dp).height(if (compact) 22.dp else 28.dp).background(Rust.copy(alpha = .72f)))
+}
+
+@Composable
 private fun SectionBanner(section: String) {
     val heading = when (section) {
         "Accueil" -> "Le grand écran, à ta façon."
@@ -1282,7 +1294,8 @@ private fun SectionBanner(section: String) {
         "Séries" -> "Séries"
         "Favoris" -> "Tes favoris"
         "Historique" -> "Récemment regardé"
-        else -> "Ton espace HOME IPTV"
+        "Paramètres" -> "Paramètres"
+        else -> "HOME IPTV"
     }
     val compact = LocalConfiguration.current.screenWidthDp < 600
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -1530,12 +1543,24 @@ private fun variantTitleKey(value: String): String =
         .replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
 
 private fun qualityOrLanguageHint(value: String): String? =
-    variantTagPattern.find(value)?.value?.uppercase()
+    variantTagPattern.find(value)?.value?.uppercase()?.replace(Regex("[^A-Z0-9]"), "")?.let { tag ->
+        when (tag) {
+            "8K" -> "8K"
+            "4K", "UHD", "2160P" -> "4K"
+            "FULLHD", "FHD", "1080P" -> "FHD"
+            "HD", "720P" -> "HD"
+            "SD", "480P" -> "SD"
+            else -> null // Codec labels such as HEVC are not separate quality choices.
+        }
+    }
 
 private val genericVariantTitles = setOf("", "chaine", "sans titre", "untitled", "unknown")
 
 private fun groupM3uVariants(entries: List<PlaylistEntry>): List<M3uVariantGroup> =
-    entries.groupBy { entry ->
+    entries.distinctBy { entry ->
+        val base = variantTitleKey(entry.name)
+        "$base|${normalizeSearchText(entry.group)}|${qualityOrLanguageHint(entry.name).orEmpty()}"
+    }.groupBy { entry ->
         val titleKey = variantTitleKey(entry.name)
         entry.tvgId?.trim()?.takeIf { it.isNotBlank() }
             ?.let { "id:${normalizeSearchText(it)}" }
@@ -1543,7 +1568,10 @@ private fun groupM3uVariants(entries: List<PlaylistEntry>): List<M3uVariantGroup
     }.map { (key, variants) -> M3uVariantGroup(key, variants) }
 
 private fun groupXtreamVariants(items: List<XtreamItem>, section: String): List<XtreamVariantGroup> =
-    items.groupBy { item ->
+    items.distinctBy { item ->
+        val base = variantTitleKey(item.name)
+        "$base|${item.year.orEmpty()}|${qualityOrLanguageHint(item.name).orEmpty()}"
+    }.groupBy { item ->
         val titleKey = variantTitleKey(item.name)
         if (titleKey in genericVariantTitles) "id:${item.id}" else {
             val year = if (section == "TV en direct") "" else item.year.orEmpty()

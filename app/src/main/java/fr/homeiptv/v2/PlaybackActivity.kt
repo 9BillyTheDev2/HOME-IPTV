@@ -4,6 +4,8 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.ViewGroup
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -39,6 +41,25 @@ private fun findHttpStatus(error: Throwable): Int? {
 class PlaybackActivity : Activity() {
     private var player: ExoPlayer? = null
     private var recent: RecentPlayback? = null
+    private val progressHandler = Handler(Looper.getMainLooper())
+    private val saveProgressTask = object : Runnable {
+        override fun run() {
+            savePlaybackProgress()
+            if (player != null) progressHandler.postDelayed(this, 5_000L)
+        }
+    }
+
+    private fun savePlaybackProgress() {
+        val currentPlayer = player ?: return
+        val record = recent ?: return
+        if (record.kind == "live") return
+        val position = currentPlayer.currentPosition.coerceAtLeast(0L)
+        if (position > 0L) {
+            val updated = record.copy(positionMs = position)
+            recent = updated
+            runCatching { SourceStore(this).savePlaybackProgress(updated) }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -140,6 +161,7 @@ class PlaybackActivity : Activity() {
             exo.prepare()
             exo.playWhenReady = true
         }
+        progressHandler.postDelayed(saveProgressTask, 5_000L)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -148,6 +170,7 @@ class PlaybackActivity : Activity() {
     }
 
     override fun onStop() {
+        progressHandler.removeCallbacks(saveProgressTask)
         val currentPlayer = player
         val record = recent
         if (currentPlayer != null && record != null) {
