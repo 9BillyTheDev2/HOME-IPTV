@@ -37,6 +37,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -716,16 +717,17 @@ private fun AddSourceDialog(onDismiss: () -> Unit, onSave: (String, String, Stri
     var user by remember { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
     var validationError by remember { mutableStateOf<String?>(null) }
+    val dialogTextHeight = minOf(450.dp, (LocalConfiguration.current.screenHeightDp * .55f).dp)
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Ajouter une source") }, text = {
-        Column(Modifier.heightIn(max = 450.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(name, { name = it }, label = { Text("Nom du profil") }, singleLine = true)
+        Column(Modifier.fillMaxWidth().heightIn(max = dialogTextHeight).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(name, { name = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Nom du profil") }, singleLine = true)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("M3U", "Xtream").forEach { item -> FilterChip(selected = kind == item, onClick = { kind = item }, label = { Text(item) }) }
             }
-            OutlinedTextField(endpoint, { endpoint = it; validationError = null }, label = { Text(if (kind == "M3U") "URL de la playlist" else "Adresse du serveur") }, singleLine = true)
+            OutlinedTextField(endpoint, { endpoint = it; validationError = null }, modifier = Modifier.fillMaxWidth(), label = { Text(if (kind == "M3U") "URL de la playlist" else "Adresse du serveur") }, singleLine = true)
             if (kind == "Xtream") {
-                OutlinedTextField(user, { user = it }, label = { Text("Identifiant") }, singleLine = true)
-                OutlinedTextField(pass, { pass = it }, label = { Text("Mot de passe") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
+                OutlinedTextField(user, { user = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Identifiant") }, singleLine = true)
+                OutlinedTextField(pass, { pass = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Mot de passe") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
             }
             Text("HTTP et HTTPS sont acceptés. En HTTP, les identifiants Xtream et les flux ne sont pas chiffrés.", color = Muted, fontSize = 11.sp)
             validationError?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp) }
@@ -1008,7 +1010,7 @@ private fun FilmDetailScreen(
         Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("← Films") }
-            Text(title, color = Cream, fontSize = if (compact) 16.sp else 19.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(title, color = Cream, fontSize = if (compact) 16.sp else 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.weight(1f))
         }
         if (loading && details == null && item != null) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Rust)
         if (compact) {
@@ -1078,9 +1080,59 @@ private fun SeriesDetailScreen(
         Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("← Séries") }
-            Text(media?.title ?: item.name, color = Cream, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(media?.title ?: item.name, color = Cream, fontSize = if (compact) 16.sp else 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.weight(1f))
         }
         if (loading && details == null) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Rust)
+        if (compact) {
+            Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
+                    NetworkArtwork(media?.poster ?: item.logo, Modifier.width(78.dp).height(112.dp), landscape = false)
+                    Column(Modifier.weight(1f)) {
+                        Text(media?.title ?: item.name, color = Cream, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+                        val metadata = listOfNotNull(media?.releaseDate ?: item.year, media?.genre)
+                            .filter { it.isNotBlank() }.joinToString(" · ")
+                        if (metadata.isNotBlank()) Text(metadata, color = Muted, fontSize = 11.sp, maxLines = 2, modifier = Modifier.padding(top = 4.dp))
+                        media?.rating?.takeIf(String::isNotBlank)?.let { Text("★  $it", color = Cyan, fontSize = 11.sp, modifier = Modifier.padding(top = 3.dp)) }
+                        media?.director?.takeIf(String::isNotBlank)?.let { Text("Réalisation : $it", color = Muted, fontSize = 10.sp, maxLines = 1) }
+                        media?.cast?.takeIf(String::isNotBlank)?.let { Text("Avec : $it", color = Muted, fontSize = 10.sp, maxLines = 1) }
+                    }
+                }
+                val compactPlot = media?.plot ?: item.plot
+                if (!compactPlot.isNullOrBlank()) {
+                    Text(compactPlot, color = Cream.copy(alpha = .82f), fontSize = 11.sp, maxLines = 2, modifier = Modifier.padding(top = 6.dp))
+                }
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    details?.seasons.orEmpty().forEach { season ->
+                        TextButton(
+                            onClick = { onSelectSeason(season.number) },
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(if (selectedSeason == season.number) Rust else Panel)
+                        ) { Text("Saison ${season.number}", color = Cream, fontSize = 11.sp) }
+                    }
+                }
+                val episodes = details?.seasons?.firstOrNull { it.number == selectedSeason }?.episodes.orEmpty()
+                if (episodes.isEmpty() && !loading) Text("Aucun épisode dans cette saison.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 5.dp))
+                androidx.compose.foundation.lazy.LazyColumn(
+                    Modifier.fillMaxWidth().weight(1f).padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(episodes, key = { "${selectedSeason}-${it.item.id}" }) { episode ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(Panel).clickable { onPlayEpisode(episode) }.focusable().padding(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            NetworkArtwork(episode.thumbnail, Modifier.width(82.dp).height(50.dp), landscape = true)
+                            Column(Modifier.weight(1f)) {
+                                Text("S${selectedSeason ?: "?"}E${episode.number} · ${episode.item.name}", color = Cream, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 2)
+                                val sub = listOfNotNull(episode.duration, episode.item.plot).joinToString(" · ")
+                                if (sub.isNotBlank()) Text(sub, color = Muted, fontSize = 10.sp, maxLines = 1)
+                            }
+                            Text("▶", color = Rust, fontSize = 18.sp, modifier = Modifier.padding(horizontal = 5.dp))
+                        }
+                    }
+                }
+            }
+        } else {
         Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             NetworkArtwork(media?.poster ?: item.logo, Modifier.width(if (compact) 92.dp else 132.dp).height(if (compact) 130.dp else 185.dp), landscape = false)
             Column(Modifier.weight(1f).fillMaxHeight()) {
@@ -1124,6 +1176,7 @@ private fun SeriesDetailScreen(
                     }
                 }
             }
+        }
         }
     }
     }
@@ -1305,7 +1358,7 @@ private fun rememberRandomFrontierBackground(): Int {
 private fun BottomSceneryBand() {
     val compact = LocalConfiguration.current.screenWidthDp < 600
     val background = rememberRandomFrontierBackground()
-    Box(Modifier.fillMaxWidth().height(if (compact) 25.dp else 34.dp)) {
+    Box(Modifier.fillMaxWidth().height(if (compact) 18.dp else 34.dp)) {
         Image(painterResource(background), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         Box(Modifier.fillMaxSize().background(Color(0xAA100D0B)))
         Box(Modifier.fillMaxWidth().height(1.dp).background(Rust.copy(alpha = .58f)))
@@ -1322,11 +1375,21 @@ private fun HomeDashboard(
     onOpenHistory: () -> Unit,
     onResume: (RecentPlayback) -> Unit
 ) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("À regarder", color = Cream, fontSize = 23.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            TextButton(onClick = onOpenFavorites) { Text("♥  Favoris  $favoriteCount", color = Cream) }
-            TextButton(onClick = onOpenHistory) { Text("Historique  $historyCount", color = Cream) }
+    val compact = LocalConfiguration.current.screenWidthDp < 600
+    val recentCardWidth = if (compact) minOf(278.dp, (LocalConfiguration.current.screenWidthDp - 40).dp) else 220.dp
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = if (compact) 14.dp else 20.dp, vertical = 12.dp)) {
+        if (compact) {
+            Text("À regarder", color = Cream, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onOpenFavorites, modifier = Modifier.weight(1f)) { Text("♥ Favoris · $favoriteCount", color = Cream, maxLines = 1) }
+                TextButton(onClick = onOpenHistory, modifier = Modifier.weight(1f)) { Text("Historique · $historyCount", color = Cream, maxLines = 1) }
+            }
+        } else {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("À regarder", color = Cream, fontSize = 23.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                TextButton(onClick = onOpenFavorites) { Text("♥  Favoris  $favoriteCount", color = Cream) }
+                TextButton(onClick = onOpenHistory) { Text("Historique  $historyCount", color = Cream) }
+            }
         }
         if (noSource) {
             Text("Ajoute une source dans ⚙ Paramètres pour commencer.", color = Muted, modifier = Modifier.padding(top = 8.dp))
@@ -1335,7 +1398,7 @@ private fun HomeDashboard(
         } else {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 recent.sortedBy { listOf("live", "vod", "series").indexOf(it.kind) }.forEach { item ->
-                    RecentCard(item, onClick = { onResume(item) })
+                RecentCard(item, width = recentCardWidth, onClick = { onResume(item) })
                 }
             }
         }
@@ -1389,10 +1452,10 @@ private fun SavedLibraryScreen(
 }
 
 @Composable
-private fun RecentCard(item: RecentPlayback, onClick: () -> Unit) {
+private fun RecentCard(item: RecentPlayback, width: Dp, onClick: () -> Unit) {
     val label = when (item.kind) { "live" -> "DERNIÈRE CHAÎNE"; "series" -> "REPRENDRE LA SÉRIE"; else -> "REPRENDRE LE FILM" }
     Column(
-        Modifier.width(220.dp).clip(RoundedCornerShape(14.dp)).background(Panel).clickable(onClick = onClick).focusable().padding(10.dp)
+        Modifier.width(width).clip(RoundedCornerShape(14.dp)).background(Panel).clickable(onClick = onClick).focusable().padding(10.dp)
     ) {
         NetworkArtwork(item.image, Modifier.fillMaxWidth().height(132.dp), landscape = item.kind == "live")
         Text(label, color = Cyan, fontSize = 10.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 9.dp))
