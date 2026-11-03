@@ -21,7 +21,20 @@ data class RecentPlayback(
     val image: String?,
     val url: String,
     val positionMs: Long = 0L,
-    val category: String = ""
+    val category: String = "",
+    val sourceKey: String = "",
+    val watchedAt: Long = System.currentTimeMillis()
+)
+
+data class FavoriteContent(
+    val key: String,
+    val kind: String,
+    val title: String,
+    val subtitle: String,
+    val image: String?,
+    val url: String,
+    val category: String,
+    val sourceKey: String
 )
 
 /** Private device-local profile storage. Secrets are encrypted with an Android Keystore AES-GCM key. */
@@ -73,7 +86,7 @@ class SourceStore(context: Context) {
             val url = o.optString("url")
             if (kind.isBlank() || title.isBlank() || url.isBlank()) return@mapNotNull null
             RecentPlayback(kind, title, o.optString("subtitle"), o.optString("image").ifBlank { null }, url,
-                o.optLong("positionMs"), o.optString("category"))
+                o.optLong("positionMs"), o.optString("category"), o.optString("sourceKey"), o.optLong("watchedAt", 0L))
         }
     }.getOrDefault(emptyList())
 
@@ -83,9 +96,81 @@ class SourceStore(context: Context) {
         val arr = JSONArray()
         entries.take(3).forEach { recent ->
             arr.put(JSONObject().put("kind", recent.kind).put("title", recent.title).put("subtitle", recent.subtitle)
-                .put("image", recent.image).put("url", recent.url).put("positionMs", recent.positionMs).put("category", recent.category))
+                .put("image", recent.image).put("url", recent.url).put("positionMs", recent.positionMs).put("category", recent.category)
+                .put("sourceKey", recent.sourceKey).put("watchedAt", recent.watchedAt))
         }
         prefs.edit().putString("recent_playback", encrypt(arr.toString())).apply()
+        saveHistory(item)
+    }
+
+    fun history(): List<RecentPlayback> = runCatching {
+        val encrypted = prefs.getString("watch_history", null).orEmpty()
+        // Preserve the three existing "last watched" entries when users install
+        // this release for the first time and the longer history key is absent.
+        if (encrypted.isBlank()) return@runCatching recents()
+        val arr = JSONArray(decrypt(encrypted))
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            val kind = o.optString("kind")
+            val title = o.optString("title")
+            val url = o.optString("url")
+            if (kind.isBlank() || title.isBlank() || url.isBlank()) return@mapNotNull null
+            RecentPlayback(kind, title, o.optString("subtitle"), o.optString("image").ifBlank { null }, url,
+                o.optLong("positionMs"), o.optString("category"), o.optString("sourceKey"), o.optLong("watchedAt", 0L))
+        }
+    }.getOrDefault(emptyList())
+
+    private fun saveHistory(item: RecentPlayback) {
+        val entries = history().filterNot {
+            it.kind == item.kind && it.title == item.title && it.subtitle == item.subtitle &&
+                it.sourceKey == item.sourceKey && System.currentTimeMillis() - it.watchedAt < 5 * 60_000L
+        }.toMutableList()
+        entries.add(0, item)
+        val arr = JSONArray()
+        entries.take(100).forEach { entry ->
+            arr.put(JSONObject().put("kind", entry.kind).put("title", entry.title).put("subtitle", entry.subtitle)
+                .put("image", entry.image).put("url", entry.url).put("positionMs", entry.positionMs)
+                .put("category", entry.category).put("sourceKey", entry.sourceKey).put("watchedAt", entry.watchedAt))
+        }
+        prefs.edit().putString("watch_history", encrypt(arr.toString())).apply()
+    }
+
+    fun favorites(): List<FavoriteContent> = runCatching {
+        val encrypted = prefs.getString("favorites", null).orEmpty()
+        if (encrypted.isBlank()) return@runCatching emptyList()
+        val arr = JSONArray(decrypt(encrypted))
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            val key = o.optString("key")
+            val title = o.optString("title")
+            val url = o.optString("url")
+            if (key.isBlank() || title.isBlank() || url.isBlank()) return@mapNotNull null
+            FavoriteContent(key, o.optString("kind"), title, o.optString("subtitle"), o.optString("image").ifBlank { null },
+                url, o.optString("category"), o.optString("sourceKey"))
+        }
+    }.getOrDefault(emptyList())
+
+    fun toggleFavorite(item: FavoriteContent) {
+        val entries = favorites().toMutableList()
+        if (entries.any { it.key == item.key }) entries.removeAll { it.key == item.key } else entries.add(0, item)
+        val arr = JSONArray()
+        entries.take(500).forEach { favorite ->
+            arr.put(JSONObject().put("key", favorite.key).put("kind", favorite.kind).put("title", favorite.title)
+                .put("subtitle", favorite.subtitle).put("image", favorite.image).put("url", favorite.url)
+                .put("category", favorite.category).put("sourceKey", favorite.sourceKey))
+        }
+        prefs.edit().putString("favorites", encrypt(arr.toString())).apply()
+    }
+
+    fun removeFavorite(key: String) {
+        val entries = favorites().filterNot { it.key == key }
+        val arr = JSONArray()
+        entries.forEach { favorite ->
+            arr.put(JSONObject().put("key", favorite.key).put("kind", favorite.kind).put("title", favorite.title)
+                .put("subtitle", favorite.subtitle).put("image", favorite.image).put("url", favorite.url)
+                .put("category", favorite.category).put("sourceKey", favorite.sourceKey))
+        }
+        prefs.edit().putString("favorites", encrypt(arr.toString())).apply()
     }
 
     private fun key(): SecretKey {

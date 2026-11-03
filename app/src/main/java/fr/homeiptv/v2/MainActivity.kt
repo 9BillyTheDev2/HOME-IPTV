@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 22090)
+Total output lines: 1593
+
 package fr.homeiptv.v2
 
 import android.app.Activity
@@ -10,6 +13,7 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,7 +34,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -49,6 +55,9 @@ import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private val Ink = Color(0xFF12110F)
 private val Panel = Color(0xFF211D19)
@@ -100,6 +109,9 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
     var filmDetails by remember { mutableStateOf<XtreamMediaDetails?>(null) }
     var m3uFilm by remember { mutableStateOf<PlaylistEntry?>(null) }
     var recentContent by remember { mutableStateOf(store.recents()) }
+    var favoriteContent by remember { mutableStateOf(store.favorites()) }
+    var watchHistory by remember { mutableStateOf(store.history()) }
+    var pendingFavoriteSeries by remember { mutableStateOf<FavoriteContent?>(null) }
     var searchResults by remember { mutableStateOf<List<XtreamItem>>(emptyList()) }
     var searchLoading by remember { mutableStateOf(false) }
     var searchJob by remember { mutableStateOf<Job?>(null) }
@@ -107,14 +119,18 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
     val activity = LocalContext.current as Activity
     val playerSettingsStore = remember { PlayerSettingsStore(activity) }
     var playerSettings by remember { mutableStateOf(playerSettingsStore.get()) }
-    val selectedTab = when (section) { "Films" -> "vod"; "Séries" -> "series"; else -> "live" }
+    val selectedTab = when (section) { "Films" -> "vod"; "Séries" -> "series"; "TV en direct" -> "live"; else -> "library" }
     var availableUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
     var updateMessage by remember { mutableStateOf<String?>(null) }
     var updateStatusText by remember { mutableStateOf<String?>(null) }
     var checkingUpdate by remember { mutableStateOf(false) }
     var installingUpdate by remember { mutableStateOf(false) }
 
-    LaunchedEffect(resumeTick) { recentContent = store.recents() }
+    LaunchedEffect(resumeTick) {
+        recentContent = store.recents()
+        favoriteContent = store.favorites()
+        watchHistory = store.history()
+    }
 
     LaunchedEffect(Unit) {
         checkingUpdate = true
@@ -129,6 +145,7 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
     }
 
     LaunchedEffect(active?.id, selectedTab) {
+        if (selectedTab == "library") return@LaunchedEffect
         records = emptyList()
         selectedGroup = null
         categoryOpen = false
@@ -174,6 +191,14 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                     records = client.items(selectedTab, firstCategory.ids)
                     if (records.isEmpty()) message = "Cette catégorie ne contient aucun élément."
                 }
+                val pending = pendingFavoriteSeries
+                if (selectedTab == "series" && pending != null && pending.sourceKey == sourceStorageKey(profile)) {
+                    val item = XtreamItem(pending.url.removePrefix("series:"), pending.title, logo = pending.image)
+                    selectedSeries = item
+                    seriesDetails = client.seriesDetails(item)
+                    selectedSeason = seriesDetails?.seasons?.firstOrNull()?.number
+                    pendingFavoriteSeries = null
+                }
             }
         } catch (e: Exception) { message = e.message ?: "Impossible de charger cette source." }
         loading = false
@@ -216,12 +241,58 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                     playerSettingsStore.save(updated)
                     playerSettings = updated
                 })
-                "Accueil" -> HomeDashboard(recentContent, active == null, onResume = { recent ->
-                    activity.play(recent.url, recent.kind, recent.title, recent.subtitle, recent.image, recent.category, recent.positionMs)
-                })
+                "Accueil" -> HomeDashboard(
+                    recentContent,
+                    active == null,
+                    favoriteCount = favoriteContent.size,
+                    historyCount = watchHistory.size,
+                    onOpenFavorites = { section = "Favoris" },
+                    onOpenHistory = { section = "Historique" },
+                    onResume = { recent ->
+                        activity.play(recent.url, recent.kind, recent.title, recent.subtitle, recent.image, recent.category,
+                            recent.positionMs, recent.sourceKey)
+                    }
+                )
+                "Favoris" -> SavedLibraryScreen(
+                    title = "Mes favoris",
+                    subtitle = "Conservés sur cet appareil et retrouvés après les mises à jour.",
+                    entries = favoriteContent.map { RecentPlayback(it.kind, it.title, it.subtitle, it.image, it.url, 0L, it.category, it.sourceKey) },
+                    emptyMessage = "Aucun favori pour le moment. Ajoute un cœur sur une chaîne, un film ou une série.",
+                    onPlay = { entry -> activity.play(entry.url, entry.kind, entry.title, entry.subtitle, entry.image, entry.category, 0L, entry.sourceKey) },
+                    onRemove = { entry ->
+                        store.removeFavorite(favoriteContent.firstOrNull {
+                            it.url == entry.url && it.title == entry.title && it.sourceKey == entry.sourceKey
+                        }?.key.orEmpty())
+                        favoriteContent = store.favorites()
+                    },
+                    onOpenSeries = { entry ->
+                        val favorite = favoriteContent.firstOrNull {
+                            it.url == entry.url && it.title == entry.title && it.sourceKey == entry.sourceKey
+                        }
+                        if (favorite != null) {
+                            val profile = profiles.firstOrNull { sourceStorageKey(it) == favorite.sourceKey }
+                            if (profile != null) {
+                                if (active?.id != profile.id) { store.setActive(profile.id); active = profile }
+                                pendingFavoriteSeries = favorite
+                                section = "Séries"
+                            }
+                        }
+                    }
+                )
+                "Historique" -> SavedLibraryScreen(
+                    title = "Historique",
+                    subtitle = "Tes derniers contenus regardés.",
+                    entries = watchHistory,
+                    emptyMessage = "L’historique apparaîtra après ta première lecture.",
+                    onPlay = { entry -> activity.play(entry.url, entry.kind, entry.title, entry.subtitle, entry.image,
+                        entry.category, if (entry.kind == "live") 0L else entry.positionMs, entry.sourceKey) },
+                    onOpenSeries = { }
+                )
                 else -> CatalogScreen(
                     section = section,
                     sourceKind = active?.kind ?: "",
+                    sourceKey = active?.let(::sourceStorageKey).orEmpty(),
+                    favorites = favoriteContent,
                     records = records,
                     categories = xtreamCategories,
                     selectedGroup = selectedGroup,
@@ -242,9 +313,16 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                     },
                     onPlayFilm = { item ->
                         val p = active
-                        if (p != null) activity.play(XtreamClient(p.endpoint, p.user, p.password).streamUrl("vod", item), "vod", item.name, item.year ?: "", item.logo, selectedGroup.orEmpty())
+                        if (p != null) activity.play(XtreamClient(p.endpoint, p.user, p.password).streamUrl("vod", item), "vod", item.name, item.year ?: "", item.logo, selectedGroup.orEmpty(), sourceKey = sourceStorageKey(p))
                     },
-                    onPlayM3uFilm = { entry -> activity.play(entry.url, "vod", entry.name, entry.group, entry.logo, entry.group) },
+                    onPlayM3uFilm = { entry -> activity.play(entry.url, "vod", entry.name, entry.group, entry.logo, entry.group, sourceKey = active?.let(::sourceStorageKey).orEmpty()) },
+                    onToggleFavorite = { favorite ->
+                        store.toggleFavorite(favorite)
+                        favoriteContent = store.favorites()
+                    },
+                    favoriteXtreamUrl = { kind, item ->
+                        active?.let { profile -> XtreamClient(profile.endpoint, profile.user, profile.password).streamUrl(kind, item, playerSettings.liveStreamFormat) }.orEmpty()
+                    },
                     onSearch = { query ->
                         searchJob?.cancel()
                         val profile = active
@@ -288,16 +366,25 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                     onPlayM3u = { entry ->
                         if (selectedTab == "vod") {
                             m3uFilm = entry; selectedFilm = null; filmDetails = null
-                        } else activity.play(entry.url, selectedTab, entry.name, entry.group, entry.logo, entry.group)
+                        } else activity.play(entry.url, selectedTab, entry.name, entry.group, entry.logo, entry.group,
+                            sourceKey = active?.let(::sourceStorageKey).orEmpty())
                     },
                     onPlayXtream = { item ->
                         val kind = selectedTab
                         val p = active
-                        if (p != null) activity.play(
-                            XtreamClient(p.endpoint, p.user, p.password).streamUrl(kind, item, playerSettings.liveStreamFormat),
+                        if (p != null) {
+                            val client = XtreamClient(p.endpoint, p.user, p.password)
+                            val fallback = if (kind == "live") client.streamUrl(
+                                kind, item,
+                                if (playerSettings.liveStreamFormat == LiveStreamFormat.MPEG_TS) LiveStreamFormat.HLS else LiveStreamFormat.MPEG_TS
+                            ) else null
+                            activity.play(
+                            client.streamUrl(kind, item, playerSettings.liveStreamFormat),
                             kind, item.name, item.year ?: "", item.logo,
-                            xtreamCategories.firstOrNull { item.categoryId in it.ids }?.name.orEmpty()
-                        )
+                            xtreamCategories.firstOrNull { item.categoryId in it.ids }?.name.orEmpty(),
+                            sourceKey = sourceStorageKey(p), fallbackUrl = fallback
+                            )
+                        }
                     },
                     onFilm = { item ->
                         val p = active ?: return@CatalogScreen
@@ -327,7 +414,8 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                         if (p != null && series != null) activity.play(
                             XtreamClient(p.endpoint, p.user, p.password).streamUrl("series", episode.item),
                             "series", series.name, episode.item.name, episode.thumbnail ?: series.logo,
-                            xtreamCategories.firstOrNull { series.categoryId in it.ids }?.name.orEmpty()
+                            xtreamCategories.firstOrNull { series.categoryId in it.ids }?.name.orEmpty(),
+                            sourceKey = sourceStorageKey(p)
                         )
                     }
                 )
@@ -393,7 +481,7 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
 
 private fun Activity.play(
     url: String, kind: String, title: String, subtitle: String = "", image: String? = null,
-    category: String = "", positionMs: Long = 0L
+    category: String = "", positionMs: Long = 0L, sourceKey: String = "", fallbackUrl: String? = null
 ) {
     startActivity(Intent(this, PlaybackActivity::class.java)
         .putExtra(PlaybackActivity.EXTRA_URL, url)
@@ -403,8 +491,18 @@ private fun Activity.play(
         .putExtra(PlaybackActivity.EXTRA_IMAGE, image)
         .putExtra(PlaybackActivity.EXTRA_CATEGORY, category)
         .putExtra(PlaybackActivity.EXTRA_POSITION, positionMs)
+        .putExtra(PlaybackActivity.EXTRA_SOURCE_KEY, sourceKey)
+        .putExtra(PlaybackActivity.EXTRA_FALLBACK_URL, fallbackUrl)
         .putExtra(PlaybackActivity.EXTRA_DECODER, PlayerSettingsStore(this).get().decoderPreference.name))
 }
+
+private fun sourceStorageKey(profile: SourceProfile): String {
+    val host = android.net.Uri.parse(profile.endpoint.trim()).host?.lowercase().orEmpty()
+    return "${profile.kind.lowercase()}|${host.ifBlank { profile.endpoint.trim().lowercase() }}"
+}
+
+private fun stableFavoriteKey(kind: String, title: String, category: String, sourceKey: String): String =
+    listOf(sourceKey, kind.lowercase(), normalizeSearchText(title), normalizeSearchText(category)).joinToString("|")
 
 private fun requireHttpEndpoint(value: String) {
     val uri = android.net.Uri.parse(value.trim())
@@ -640,151 +738,7 @@ private fun AddSourceDialog(onDismiss: () -> Unit, onSave: (String, String, Stri
         val validHttpUrl = (uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) && !uri.host.isNullOrBlank()
         validationError = when {
             name.isBlank() -> "Donne un nom à cette source."
-            !validHttpUrl -> "Entre une adresse HTTP ou HTTPS complète avec un nom de serveur valide."
-            kind == "Xtream" && (user.isBlank() || pass.isBlank()) -> "Renseigne l’identifiant et le mot de passe Xtream."
-            else -> null
-        }
-        if (validationError == null) onSave(name.trim(), kind, endpoint.trim(), user.trim(), pass)
-    }) { Text("Tester et ajouter") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } })
-}
-
-@Composable
-private fun CatalogScreen(
-    section: String,
-    sourceKind: String,
-    records: List<Any>,
-    categories: List<XtreamCategory>,
-    selectedGroup: String?,
-    loading: Boolean,
-    searchLoading: Boolean,
-    searchResults: List<XtreamItem>,
-    message: String,
-    filmItem: XtreamItem?,
-    filmDetails: XtreamMediaDetails?,
-    m3uFilm: PlaylistEntry?,
-    seriesItem: XtreamItem?,
-    seriesDetails: XtreamSeriesDetails?,
-    selectedSeason: String?,
-    onSelectSeason: (String) -> Unit,
-    onBackDetails: () -> Unit,
-    onPlayFilm: (XtreamItem) -> Unit,
-    onPlayM3uFilm: (PlaylistEntry) -> Unit,
-    onSearch: (String) -> Unit,
-    onSelectGroup: (String) -> Unit,
-    onPlayM3u: (PlaylistEntry) -> Unit,
-    onPlayXtream: (XtreamItem) -> Unit,
-    onFilm: (XtreamItem) -> Unit,
-    onSeries: (XtreamItem) -> Unit,
-    onPlayEpisode: (XtreamEpisodeInfo) -> Unit
-) {
-    var searchText by remember(section) { mutableStateOf("") }
-    val screenWidth = LocalConfiguration.current.screenWidthDp
-    val compact = screenWidth < 600
-    val categoryRailWidth = if (screenWidth < 700) 148.dp else 220.dp
-    var variantChoices by remember(section) { mutableStateOf<List<VariantChoice>?>(null) }
-    val query = normalizeSearchText(searchText.trim())
-    LaunchedEffect(query, sourceKind) {
-        if (sourceKind == "Xtream" && query.length >= 2) {
-            delay(500)
-            onSearch(query)
-        } else {
-            onSearch("")
-        }
-    }
-
-    val m3uEntries = remember(records) { records.filterIsInstance<PlaylistEntry>() }
-    val groups = if (sourceKind == "M3U") m3uEntries.map { it.group }.distinct().sorted() else categories.map { it.name }
-    val filteredM3u = m3uEntries.filter { entry ->
-        val groupMatches = query.isNotBlank() || selectedGroup == null || selectedGroup == entry.group
-        groupMatches && (query.isBlank() || normalizeSearchText(entry.name + " " + entry.group).contains(query))
-    }
-    val groupedM3u = remember(filteredM3u) { groupM3uVariants(filteredM3u) }
-    val displayedItems = if (query.isNotBlank()) searchResults else records.filterIsInstance<XtreamItem>()
-    val groupedXtream = remember(displayedItems, section) { groupXtreamVariants(displayedItems, section) }
-    val categoryName: (XtreamItem) -> String = { item ->
-        categories.firstOrNull { item.categoryId in it.ids }?.name ?: selectedGroup ?: "Autres"
-    }
-    fun chooseM3uGroup(group: M3uVariantGroup) {
-        if (group.entries.size == 1) {
-            onPlayM3u(group.entries.first())
-        } else {
-            variantChoices = group.entries.mapIndexed { index, entry ->
-                val descriptors = listOf(entry.group, qualityOrLanguageHint(entry.name)).filterNotNull().filter { it.isNotBlank() }
-                VariantChoice(entry.name, descriptors.distinct().joinToString(" · ").ifBlank { "Flux alternatif ${index + 1}" }) {
-                    onPlayM3u(entry)
-                }
-            }
-        }
-    }
-    fun chooseXtreamGroup(group: XtreamVariantGroup) {
-        if (group.items.size == 1) {
-            val item = group.items.first()
-            when (section) { "Séries" -> onSeries(item); "Films" -> onFilm(item); else -> onPlayXtream(item) }
-        } else {
-            variantChoices = group.items.mapIndexed { index, item ->
-                val descriptors = listOf(
-                    categoryName(item),
-                    item.year,
-                    item.extension?.let { it.uppercase().removePrefix(".") }
-                ).filterNotNull().filter { it.isNotBlank() }
-                VariantChoice(item.name, descriptors.distinct().joinToString(" · ").ifBlank { "Flux alternatif ${index + 1}" }) {
-                    when (section) { "Séries" -> onSeries(item); "Films" -> onFilm(item); else -> onPlayXtream(item) }
-                }
-            }
-        }
-    }
-
-    Column(Modifier.fillMaxSize().padding(horizontal = if (compact) 12.dp else 20.dp, vertical = 12.dp)) {
-        if (compact) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(section, color = Cream, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                if (loading || searchLoading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-            }
-            OutlinedTextField(
-                value = searchText,
-                onValueChange = { searchText = it },
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                singleLine = true,
-                label = { Text("Rechercher") },
-                placeholder = { Text("Chaîne, film ou série") },
-                trailingIcon = {
-                    if (searchText.isNotEmpty()) TextButton(onClick = { searchText = "" }) { Text("×") }
-                    else Text("⌕", color = Cyan, fontSize = 21.sp)
-                }
-            )
-        } else {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text(section.uppercase(), color = Cream, fontSize = 25.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                OutlinedTextField(
-                    value = searchText,
-                    onValueChange = { searchText = it },
-                    modifier = Modifier.widthIn(min = 220.dp, max = 360.dp),
-                    singleLine = true,
-                    label = { Text("Tout rechercher") },
-                    placeholder = { Text("Chaîne, film ou série") },
-                    trailingIcon = {
-                        if (searchText.isNotEmpty()) TextButton(onClick = { searchText = "" }) { Text("×") }
-                        else Text("⌕", color = Cyan, fontSize = 21.sp)
-                    }
-                )
-                if (loading || searchLoading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        @Composable
-        fun CatalogContent(modifier: Modifier = Modifier) {
-            Column(modifier) {
-                if (seriesItem != null) {
-                    SeriesDetailScreen(seriesItem, seriesDetails, selectedSeason, loading, onSelectSeason, onBackDetails, onPlayEpisode)
-                } else if (filmItem != null || m3uFilm != null) {
-                    FilmDetailScreen(filmItem, filmDetails, m3uFilm, loading, onBackDetails, onPlayFilm, onPlayM3uFilm)
-                } else if (sourceKind == "M3U") {
-                    if (filteredM3u.isEmpty() && !loading) Text(if (message.isNotBlank()) message else "Aucun contenu trouvé.", color = Muted, modifier = Modifier.padding(16.dp))
-                    LazyVerticalGrid(columns = GridCells.Adaptive(if (compact) 138.dp else 128.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(groupedM3u, key = { it.key }) { group ->
-                            val entry = group.entries.first()
-                            CatalogGridCard(entry.name, entry.group, entry.logo, landscape = section == "TV en direct", variantCount = group.entries.size) {
-                                chooseM3uGroup(group)
+            !validHttpUrl -> "Entre une adr…2090 tokens truncated…                 chooseM3uGroup(group)
                             }
                         }
                     }
@@ -801,8 +755,16 @@ private fun CatalogScreen(
                         LazyVerticalGrid(columns = GridCells.Adaptive(if (compact) 138.dp else 128.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             items(groupedXtream, key = { it.key }) { group ->
                                 val item = group.items.first()
-                                val subtitle = if (query.isNotBlank()) categoryName(item) else (item.year ?: categoryName(item))
-                                CatalogGridCard(item.name, subtitle, item.logo, landscape = section == "TV en direct", variantCount = group.items.size) {
+                                val category = categoryName(item)
+                                val kind = when (section) { "TV en direct" -> "live"; "Séries" -> "series"; else -> "vod" }
+                                val key = stableFavoriteKey(kind, item.name, category, sourceKey)
+                                val subtitle = if (query.isNotBlank()) category else (item.year ?: category)
+                                CatalogGridCard(item.name, subtitle, item.logo, landscape = section == "TV en direct", variantCount = group.items.size,
+                                    favorite = favorites.any { it.key == key }, onToggleFavorite = {
+                                        val contentUrl = if (kind == "series") "series:${item.id}" else favoriteXtreamUrl(kind, item)
+                                        onToggleFavorite(FavoriteContent(key, kind, item.name, item.year ?: category, item.logo,
+                                            contentUrl, category, sourceKey))
+                                    }) {
                                     chooseXtreamGroup(group)
                                 }
                             }
@@ -888,7 +850,12 @@ private fun FilmDetailScreen(
     val poster = details?.poster ?: item?.logo ?: m3uItem?.logo
     val plot = details?.plot ?: item?.plot
     val compact = LocalConfiguration.current.screenWidthDp < 600
-    Column(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize()) {
+        details?.backdrop?.let { backdrop ->
+            NetworkArtwork(backdrop, Modifier.fillMaxSize(), landscape = true)
+            Box(Modifier.fillMaxSize().background(Color(0xCC12110F)))
+        }
+        Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("← Films") }
             Text(title, color = Cream, fontSize = if (compact) 16.sp else 19.sp, fontWeight = FontWeight.Bold, maxLines = 1)
@@ -903,6 +870,7 @@ private fun FilmDetailScreen(
                         val metadata = listOfNotNull(details?.releaseDate ?: item?.year, details?.duration, details?.genre)
                             .filter { it.isNotBlank() }.joinToString("  ·  ")
                         if (metadata.isNotBlank()) Text(metadata, color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 7.dp))
+                        details?.rating?.takeIf(String::isNotBlank)?.let { Text("★  $it", color = Cyan, fontSize = 12.sp, modifier = Modifier.padding(top = 5.dp)) }
                         details?.director?.takeIf(String::isNotBlank)?.let { DetailLine("Réalisation", it) }
                     }
                 }
@@ -923,6 +891,7 @@ private fun FilmDetailScreen(
                     val metadata = listOfNotNull(details?.releaseDate ?: item?.year, details?.duration, details?.genre)
                         .filter { it.isNotBlank() }.joinToString("  ·  ")
                     if (metadata.isNotBlank()) Text(metadata, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
+                    details?.rating?.takeIf(String::isNotBlank)?.let { Text("★  $it", color = Cyan, fontSize = 13.sp, modifier = Modifier.padding(top = 5.dp)) }
                     details?.director?.takeIf(String::isNotBlank)?.let { DetailLine("Réalisation", it) }
                     details?.cast?.takeIf(String::isNotBlank)?.let { DetailLine("Avec", it) }
                     if (!plot.isNullOrBlank()) Text(plot, color = Cream.copy(alpha = .88f), fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 12.dp))
@@ -935,6 +904,7 @@ private fun FilmDetailScreen(
                 }
             }
         }
+    }
     }
 }
 
@@ -950,7 +920,12 @@ private fun SeriesDetailScreen(
 ) {
     val media = details?.media
     val compact = LocalConfiguration.current.screenWidthDp < 600
-    Column(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize()) {
+        media?.backdrop?.let { backdrop ->
+            NetworkArtwork(backdrop, Modifier.fillMaxSize(), landscape = true)
+            Box(Modifier.fillMaxSize().background(Color(0xD912110F)))
+        }
+        Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("← Séries") }
             Text(media?.title ?: item.name, color = Cream, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1)
@@ -963,6 +938,7 @@ private fun SeriesDetailScreen(
                 val metadata = listOfNotNull(media?.releaseDate ?: item.year, media?.genre)
                     .filter { it.isNotBlank() }.joinToString("  ·  ")
                 if (metadata.isNotBlank()) Text(metadata, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+                media?.rating?.takeIf(String::isNotBlank)?.let { Text("★  $it", color = Cyan, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp)) }
                 media?.director?.takeIf(String::isNotBlank)?.let { DetailLine("Réalisation", it) }
                 media?.cast?.takeIf(String::isNotBlank)?.let { DetailLine("Avec", it) }
                 val plot = media?.plot ?: item.plot
@@ -999,6 +975,7 @@ private fun SeriesDetailScreen(
                 }
             }
         }
+    }
     }
 }
 
@@ -1126,23 +1103,121 @@ private fun SectionBanner(section: String) {
         "TV en direct" -> "Télévision en direct"
         "Films" -> "Films"
         "Séries" -> "Séries"
+        "Favoris" -> "Tes favoris"
+        "Historique" -> "Récemment regardé"
         else -> "Ton espace HOME IPTV"
     }
     val compact = LocalConfiguration.current.screenWidthDp < 600
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(60_000L)
+        }
+    }
+    val moment = now / 300_000L
+    val sceneNames = listOf("Bourg animé", "Grande prairie", "Rivière", "Montagnes", "Vallée boisée")
+    val weather = listOf("☀  Clair", "☂  Pluie", "❄  Neige", "⛈  Orage")[(moment % 4L).toInt()]
     Box(Modifier.fillMaxWidth().height(if (compact) 76.dp else 96.dp)) {
         Image(painterResource(R.drawable.home_frontier), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        Box(Modifier.fillMaxSize().background(Color(0x990E0D0B)))
+        WesternScene(moment, Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().background(Color(0x880E0D0B)))
         Column(Modifier.align(Alignment.CenterStart).padding(horizontal = 22.dp, vertical = 8.dp)) {
             Text("WESTERN  ·  RÉTROFUTURISTE", color = Cyan, fontSize = 9.sp, letterSpacing = 1.5.sp)
             Text(heading, color = Cream, fontSize = if (compact) 18.sp else 21.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        Column(Modifier.align(Alignment.TopEnd).padding(horizontal = 12.dp, vertical = 7.dp), horizontalAlignment = Alignment.End) {
+            Text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(now)), color = Cream, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text("${sceneNames[(moment % sceneNames.size).toInt()]}  ·  $weather", color = Muted, fontSize = 9.sp, maxLines = 1)
         }
     }
 }
 
 @Composable
-private fun HomeDashboard(recent: List<RecentPlayback>, noSource: Boolean, onResume: (RecentPlayback) -> Unit) {
+private fun WesternScene(moment: Long, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val scene = (moment % 5L).toInt()
+        val w = size.width
+        val h = size.height
+        val ground = h * .77f
+        val warm = Color(0xFFC95132).copy(alpha = .55f)
+        val shadow = Color(0xFF17130F).copy(alpha = .82f)
+        val hill = Color(0xFF38261B).copy(alpha = .78f)
+        val skyTint = listOf(Color(0xFF8A4D35), Color(0xFF3A4A43), Color(0xFF354544), Color(0xFF55413B), Color(0xFF2F463B))[scene].copy(alpha = .18f)
+        drawRect(skyTint)
+        val ridge = Path().apply {
+            moveTo(0f, ground)
+            when (scene) {
+                0 -> { lineTo(w * .18f, ground - h * .14f); lineTo(w * .26f, ground - h * .14f); lineTo(w * .26f, ground - h * .24f); lineTo(w * .37f, ground - h * .24f); lineTo(w * .37f, ground - h * .09f); lineTo(w * .62f, ground - h * .13f) }
+                1 -> { lineTo(w * .22f, ground - h * .11f); lineTo(w * .5f, ground - h * .18f); lineTo(w * .77f, ground - h * .1f) }
+                2 -> { lineTo(w * .18f, ground - h * .18f); lineTo(w * .45f, ground - h * .12f); lineTo(w * .72f, ground - h * .2f) }
+                3 -> { lineTo(w * .2f, ground - h * .26f); lineTo(w * .33f, ground - h * .1f); lineTo(w * .61f, ground - h * .32f); lineTo(w * .82f, ground - h * .12f) }
+                else -> { lineTo(w * .15f, ground - h * .16f); lineTo(w * .35f, ground - h * .11f); lineTo(w * .58f, ground - h * .23f); lineTo(w * .82f, ground - h * .1f) }
+            }
+            lineTo(w, ground)
+            lineTo(w, h)
+            lineTo(0f, h)
+            close()
+        }
+        drawPath(ridge, hill)
+        drawRect(shadow.copy(alpha = .25f), topLeft = androidx.compose.ui.geometry.Offset(0f, ground), size = androidx.compose.ui.geometry.Size(w, h - ground))
+        when (scene) {
+            0 -> for (i in 0..3) {
+                val x = w * (.16f + i * .17f)
+                drawRect(shadow, androidx.compose.ui.geometry.Offset(x, ground - h * .18f), androidx.compose.ui.geometry.Size(w * .055f, h * .18f))
+                drawRect(warm.copy(alpha = .28f), androidx.compose.ui.geometry.Offset(x + w * .01f, ground - h * .12f), androidx.compose.ui.geometry.Size(w * .012f, h * .045f))
+            }
+            1, 4 -> for (i in 0..8) {
+                val x = w * (.04f + i * .115f)
+                val treeHeight = h * (.12f + ((i * 7 + scene) % 3) * .03f)
+                val crown = Path().apply { moveTo(x, ground); lineTo(x + w * .025f, ground - treeHeight); lineTo(x + w * .05f, ground); close() }
+                drawPath(crown, shadow)
+            }
+            2 -> {
+                val river = Path().apply { moveTo(w * .35f, ground); cubicTo(w * .42f, ground - h * .05f, w * .53f, ground + h * .02f, w * .62f, h); lineTo(w * .8f, h); cubicTo(w * .69f, ground + h * .02f, w * .54f, ground - h * .03f, w * .48f, ground); close() }
+                drawPath(river, Color(0xFF5E756E).copy(alpha = .55f))
+            }
+        }
+        // Quelques silhouettes discrètes donnent de la vie au décor sans couvrir les affiches.
+        val riderX = w * (.76f + ((moment % 4L) * .035f).toFloat())
+        val riderY = ground - h * .12f
+        drawOval(shadow, androidx.compose.ui.geometry.Offset(riderX, riderY + h * .055f), androidx.compose.ui.geometry.Size(w * .07f, h * .035f))
+        drawCircle(shadow, h * .018f, androidx.compose.ui.geometry.Offset(riderX + w * .035f, riderY))
+        drawLine(shadow, androidx.compose.ui.geometry.Offset(riderX + w * .035f, riderY + h * .012f), androidx.compose.ui.geometry.Offset(riderX + w * .045f, riderY + h * .065f), strokeWidth = h * .012f)
+        val weatherIndex = (moment % 4L).toInt()
+        if (weatherIndex == 1 || weatherIndex == 3) {
+            for (i in 0..14) {
+                val x = w * ((i * 37 % 100) / 100f)
+                val y = h * ((i * 19 % 65) / 100f)
+                drawLine(Color(0xFFB7ADA2).copy(alpha = .38f), androidx.compose.ui.geometry.Offset(x, y), androidx.compose.ui.geometry.Offset(x - h * .018f, y + h * .07f), strokeWidth = h * .006f)
+            }
+        } else if (weatherIndex == 2) {
+            for (i in 0..12) {
+                val x = w * ((i * 31 % 100) / 100f)
+                val y = h * ((i * 23 % 55) / 100f)
+                drawCircle(Cream.copy(alpha = .55f), h * .012f, androidx.compose.ui.geometry.Offset(x, y))
+            }
+        }
+        drawRect(Brush.verticalGradient(listOf(Color.Transparent, shadow.copy(alpha = .38f)), startY = h * .48f, endY = h))
+    }
+}
+
+@Composable
+private fun HomeDashboard(
+    recent: List<RecentPlayback>,
+    noSource: Boolean,
+    favoriteCount: Int,
+    historyCount: Int,
+    onOpenFavorites: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onResume: (RecentPlayback) -> Unit
+) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp)) {
-        Text("À regarder", color = Cream, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("À regarder", color = Cream, fontSize = 23.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            TextButton(onClick = onOpenFavorites) { Text("♥  Favoris  $favoriteCount", color = Cream) }
+            TextButton(onClick = onOpenHistory) { Text("Historique  $historyCount", color = Cream) }
+        }
         if (noSource) {
             Text("Ajoute une source dans ⚙ Paramètres pour commencer.", color = Muted, modifier = Modifier.padding(top = 8.dp))
         } else if (recent.isEmpty()) {
@@ -1151,6 +1226,52 @@ private fun HomeDashboard(recent: List<RecentPlayback>, noSource: Boolean, onRes
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 recent.sortedBy { listOf("live", "vod", "series").indexOf(it.kind) }.forEach { item ->
                     RecentCard(item, onClick = { onResume(item) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SavedLibraryScreen(
+    title: String,
+    subtitle: String,
+    entries: List<RecentPlayback>,
+    emptyMessage: String,
+    onPlay: (RecentPlayback) -> Unit,
+    onRemove: ((RecentPlayback) -> Unit)? = null,
+    onOpenSeries: (RecentPlayback) -> Unit
+) {
+    val compact = LocalConfiguration.current.screenWidthDp < 600
+    Column(Modifier.fillMaxSize().padding(horizontal = if (compact) 14.dp else 22.dp, vertical = 12.dp)) {
+        Text(title, color = Cream, fontSize = if (compact) 21.sp else 25.sp, fontWeight = FontWeight.Bold)
+        Text(subtitle, color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 12.dp))
+        if (entries.isEmpty()) {
+            Text(emptyMessage, color = Muted, modifier = Modifier.padding(top = 12.dp))
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(if (compact) 140.dp else 160.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(entries, key = { "${it.kind}|${it.title}|${it.subtitle}|${it.url}" }) { entry ->
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Panel).padding(8.dp)) {
+                        CatalogGridCard(entry.title, entry.subtitle, entry.image, landscape = entry.kind == "live") {
+                            if (entry.kind == "series" && entry.url.startsWith("series:")) onOpenSeries(entry) else onPlay(entry)
+                        }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                when (entry.kind) { "live" -> "TV"; "series" -> "SÉRIE"; else -> "FILM" },
+                                color = Cyan, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)
+                            )
+                            onRemove?.let { remove ->
+                                TextButton(onClick = { remove(entry) }) { Text("Retirer", color = Muted, fontSize = 11.sp) }
+                            }
+                        }
+                        if (entry.kind != "live" && entry.positionMs > 0L) {
+                            Text("Reprendre à ${entry.positionMs / 3_600_000L}h ${(entry.positionMs / 60_000L) % 60}min", color = Muted, fontSize = 10.sp)
+                        }
+                    }
                 }
             }
         }
@@ -1181,6 +1302,8 @@ private fun CatalogGridCard(
     image: String?,
     landscape: Boolean,
     variantCount: Int = 1,
+    favorite: Boolean = false,
+    onToggleFavorite: (() -> Unit)? = null,
     onClick: () -> Unit
 ) {
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Panel).clickable(onClick = onClick).focusable().padding(8.dp)) {
@@ -1195,6 +1318,16 @@ private fun CatalogGridCard(
                     modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)
                         .clip(RoundedCornerShape(10.dp)).background(Ink.copy(alpha = .9f))
                         .padding(horizontal = 8.dp, vertical = 5.dp)
+                )
+            }
+            onToggleFavorite?.let { toggle ->
+                Text(
+                    if (favorite) "♥" else "♡",
+                    color = if (favorite) Rust else Cream,
+                    fontSize = 20.sp,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp)
+                        .clip(RoundedCornerShape(20.dp)).background(Ink.copy(alpha = .88f))
+                        .clickable(onClick = toggle).focusable().padding(horizontal = 8.dp, vertical = 3.dp)
                 )
             }
         }

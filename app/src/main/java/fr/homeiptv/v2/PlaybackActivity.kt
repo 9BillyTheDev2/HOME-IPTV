@@ -49,6 +49,7 @@ class PlaybackActivity : Activity() {
             return
         }
         val kind = intent.getStringExtra(EXTRA_KIND).orEmpty()
+        val sourceKey = intent.getStringExtra(EXTRA_SOURCE_KEY).orEmpty()
         recent = RecentPlayback(
             kind = kind,
             title = intent.getStringExtra(EXTRA_TITLE).orEmpty(),
@@ -56,7 +57,8 @@ class PlaybackActivity : Activity() {
             image = intent.getStringExtra(EXTRA_IMAGE),
             url = url,
             positionMs = intent.getLongExtra(EXTRA_POSITION, 0L),
-            category = intent.getStringExtra(EXTRA_CATEGORY).orEmpty()
+            category = intent.getStringExtra(EXTRA_CATEGORY).orEmpty(),
+            sourceKey = sourceKey
         ).takeIf { it.kind.isNotBlank() && it.title.isNotBlank() }
 
         val view = PlayerView(this).apply { layoutParams = ViewGroup.LayoutParams(-1, -1); useController = true }
@@ -71,6 +73,8 @@ class PlaybackActivity : Activity() {
         val renderersFactory = DefaultRenderersFactory(this).setEnableDecoderFallback(true).setMediaCodecSelector(
             preferredDecoderSelector(decoderPreference)
         )
+        var fallbackTried = false
+        val fallbackUrl = intent.getStringExtra(EXTRA_FALLBACK_URL)
         player = ExoPlayer.Builder(this, renderersFactory).setMediaSourceFactory(mediaSourceFactory).build().also { exo ->
             view.player = exo
             val inferredMimeType = when {
@@ -84,6 +88,25 @@ class PlaybackActivity : Activity() {
             }.build()
             exo.addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
+                    if (!fallbackTried && !fallbackUrl.isNullOrBlank()) {
+                        val fallbackUri = Uri.parse(fallbackUrl)
+                        if ((fallbackUri.scheme.equals("http", true) || fallbackUri.scheme.equals("https", true)) && !fallbackUri.host.isNullOrBlank()) {
+                            fallbackTried = true
+                            val fallbackMimeType = when {
+                                fallbackUrl.contains(".m3u8", ignoreCase = true) -> "application/x-mpegURL"
+                                fallbackUrl.contains(".mpd", ignoreCase = true) -> "application/dash+xml"
+                                fallbackUri.lastPathSegment?.substringAfterLast('.')?.equals("ts", ignoreCase = true) == true -> "video/mp2t"
+                                else -> null
+                            }
+                            val fallbackItem = MediaItem.Builder().setUri(fallbackUri).apply {
+                                fallbackMimeType?.let { setMimeType(it) }
+                            }.build()
+                            exo.setMediaItem(fallbackItem)
+                            exo.prepare()
+                            exo.playWhenReady = true
+                            return
+                        }
+                    }
                     val explanation = when (error.errorCodeName) {
                         "ERROR_CODE_IO_BAD_HTTP_STATUS" -> "Le serveur a refusé le flux."
                         "ERROR_CODE_IO_NETWORK_CONNECTION_FAILED",
@@ -132,5 +155,7 @@ class PlaybackActivity : Activity() {
         const val EXTRA_CATEGORY = "home_iptv_recent_category"
         const val EXTRA_POSITION = "home_iptv_recent_position"
         const val EXTRA_DECODER = "home_iptv_decoder_preference"
+        const val EXTRA_SOURCE_KEY = "home_iptv_source_key"
+        const val EXTRA_FALLBACK_URL = "home_iptv_fallback_url"
     }
 }
