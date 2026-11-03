@@ -813,14 +813,16 @@ private fun HeaderNavigation(
                 )
             }
         }
-        Text(
-            "⌕  RECHERCHE",
-            color = if (section in listOf("TV en direct", "Films", "Séries")) Cream else Muted,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onSearch)
-                .focusable().padding(horizontal = 10.dp, vertical = 9.dp)
-        )
+        if (section in listOf("TV en direct", "Films", "Séries")) {
+            Text(
+                "⌕  RECHERCHE",
+                color = Cream,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onSearch)
+                    .focusable().padding(horizontal = 10.dp, vertical = 9.dp)
+            )
+        }
         Text(
             "⚙  PARAMÈTRES",
             color = if (section == "Paramètres") Rust else Cream,
