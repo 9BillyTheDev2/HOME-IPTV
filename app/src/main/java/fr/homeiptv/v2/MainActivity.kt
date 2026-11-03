@@ -222,8 +222,7 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
         Column(Modifier.fillMaxSize().background(Ink)) {
             HeaderNavigation(
                 section,
-                onNavigate = { section = it },
-                onSearch = { if (section !in listOf("TV en direct", "Films", "Séries")) section = "Films" }
+                onNavigate = { section = it }
             )
             SectionBanner(section)
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -1228,104 +1227,49 @@ private fun CategoryButton(title: String, selected: Boolean, disabled: Boolean, 
 @Composable
 private fun HeaderNavigation(
     section: String,
-    onNavigate: (String) -> Unit,
-    onSearch: () -> Unit
+    onNavigate: (String) -> Unit
 ) {
     val compact = LocalConfiguration.current.screenWidthDp < 600
-    if (compact) {
-        Column(
-            Modifier.fillMaxWidth().background(Color(0xFF12100E)).padding(horizontal = 12.dp, vertical = 6.dp)
-        ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Image(
-                    painterResource(R.drawable.home_iptv_icon),
-                    "HOME IPTV",
-                    Modifier.size(width = 44.dp, height = 36.dp),
-                    contentScale = ContentScale.Fit
-                )
-                Text("HOME IPTV", color = Cream, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
-                Spacer(Modifier.weight(1f))
-                Text(
-                    "⚙",
-                    color = if (section == "Paramètres") Rust else Cream,
-                    fontSize = 22.sp,
-                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onNavigate("Paramètres") }
-                        .focusable().padding(horizontal = 10.dp, vertical = 4.dp)
-                )
-                Text(
-                    "Paramètres",
-                    color = if (section == "Paramètres") Rust else Cream,
-                    fontSize = 12.sp,
-                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onNavigate("Paramètres") }
-                        .focusable().padding(end = 4.dp).padding(vertical = 6.dp)
-                )
-            }
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                listOf("Accueil", "TV en direct", "Films", "Séries").forEach { item ->
-                    val selected = item == section
-                    Text(
-                        item,
-                        color = if (selected) Cream else Muted,
-                        fontSize = 13.sp,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                        maxLines = 1,
-                        modifier = Modifier.clip(RoundedCornerShape(9.dp))
-                            .background(if (selected) Rust else Color.Transparent)
-                            .clickable { onNavigate(item) }.focusable()
-                            .padding(horizontal = 13.dp, vertical = 9.dp)
-                    )
-                }
-            }
-        }
-    } else {
+    Row(
+        Modifier.fillMaxWidth().background(Color(0xFF12110F))
+            .padding(horizontal = if (compact) 8.dp else 18.dp, vertical = if (compact) 5.dp else 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 8.dp)
+    ) {
+        Image(
+            painterResource(R.drawable.home_iptv_mark),
+            "HOME IPTV",
+            Modifier.size(if (compact) 38.dp else 52.dp).clip(RoundedCornerShape(8.dp)),
+            contentScale = ContentScale.Fit
+        )
         Row(
-            Modifier.fillMaxWidth().background(Color(0xFF12100E)).padding(horizontal = 18.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 1.dp else 6.dp)
         ) {
-            Image(painterResource(R.drawable.home_iptv_icon), "HOME IPTV", Modifier.size(width = 76.dp, height = 52.dp), contentScale = ContentScale.Fit)
-            Box(Modifier.padding(horizontal = 12.dp).width(1.dp).height(30.dp).background(Color(0xFF615346)))
-            Row(
-                Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                listOf("Accueil", "TV en direct", "Films", "Séries").forEach { item ->
-                    val selected = item == section
-                    Text(
-                        item.uppercase(),
-                        color = if (selected) Cream else Muted,
-                        fontSize = 12.sp,
-                        letterSpacing = .4.sp,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                        modifier = Modifier.clip(RoundedCornerShape(8.dp))
-                            .background(if (selected) Rust else Color.Transparent)
-                            .clickable { onNavigate(item) }.focusable()
-                            .padding(horizontal = 11.dp, vertical = 10.dp)
-                    )
-                }
-            }
-            if (section in listOf("TV en direct", "Films", "Séries")) {
+            listOf("Accueil", "TV", "Films", "Séries").forEach { label ->
+                val destination = if (label == "TV") "TV en direct" else label
+                val selected = destination == section
                 Text(
-                    "⌕  RECHERCHE",
-                    color = Cream,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onSearch)
-                        .focusable().padding(horizontal = 10.dp, vertical = 9.dp)
+                    label,
+                    color = if (selected) Cream else Muted,
+                    fontSize = if (compact) 11.sp else 14.sp,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    maxLines = 1,
+                    modifier = Modifier.clip(RoundedCornerShape(9.dp))
+                        .background(if (selected) Rust else Color.Transparent)
+                        .clickable { onNavigate(destination) }.focusable()
+                        .padding(horizontal = if (compact) 8.dp else 14.dp, vertical = if (compact) 9.dp else 11.dp)
                 )
             }
-            Text(
-                "⚙  PARAMÈTRES",
-                color = if (section == "Paramètres") Rust else Cream,
-                fontSize = 11.sp,
-                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { onNavigate("Paramètres") }
-                    .focusable().padding(horizontal = 10.dp, vertical = 8.dp)
-            )
         }
+        Text(
+            "⚙",
+            color = if (section == "Paramètres") Rust else Cream,
+            fontSize = if (compact) 21.sp else 26.sp,
+            modifier = Modifier.clip(RoundedCornerShape(9.dp)).clickable { onNavigate("Paramètres") }
+                .focusable().padding(horizontal = if (compact) 7.dp else 12.dp, vertical = 6.dp)
+        )
     }
 }
 
