@@ -75,6 +75,8 @@ class PlaybackActivity : Activity() {
             preferredDecoderSelector(decoderPreference)
         )
         var fallbackTried = false
+        var resumePositionApplied = false
+        val resumePosition = intent.getLongExtra(EXTRA_POSITION, 0L).coerceAtLeast(0L)
         val fallbackUrl = intent.getStringExtra(EXTRA_FALLBACK_URL)
         player = ExoPlayer.Builder(this, renderersFactory).setMediaSourceFactory(mediaSourceFactory).build().also { exo ->
             view.player = exo
@@ -88,6 +90,13 @@ class PlaybackActivity : Activity() {
                 inferredMimeType?.let { setMimeType(it) }
             }.build()
             exo.addListener(object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (!resumePositionApplied && playbackState == Player.STATE_READY && resumePosition > 0L && kind != "live") {
+                        exo.seekTo(resumePosition)
+                        resumePositionApplied = true
+                    }
+                }
+
                 override fun onPlayerError(error: PlaybackException) {
                     if (!fallbackTried && !fallbackUrl.isNullOrBlank()) {
                         val fallbackUri = Uri.parse(fallbackUrl)
@@ -129,8 +138,6 @@ class PlaybackActivity : Activity() {
             })
             exo.setMediaItem(mediaItem)
             exo.prepare()
-            val position = intent.getLongExtra(EXTRA_POSITION, 0L).coerceAtLeast(0L)
-            if (position > 0L) exo.seekTo(position)
             exo.playWhenReady = true
         }
     }

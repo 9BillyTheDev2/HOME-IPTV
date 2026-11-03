@@ -84,6 +84,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (resources.configuration.smallestScreenWidthDp < 600) {
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
         applyImmersiveMode()
         sourceStore = SourceStore(this)
         setContent { HomeApp(sourceStore, resumeTick.value) }
@@ -796,6 +799,7 @@ private fun CatalogScreen(
     var searchText by remember(section) { mutableStateOf("") }
     val screenWidth = LocalConfiguration.current.screenWidthDp
     val compact = screenWidth < 600
+    val showingDetail = seriesItem != null || filmItem != null || m3uFilm != null
     val categoryRailWidth = if (screenWidth < 700) 148.dp else 220.dp
     var variantChoices by remember(section) { mutableStateOf<List<VariantChoice>?>(null) }
     val query = normalizeSearchText(searchText.trim())
@@ -851,9 +855,8 @@ private fun CatalogScreen(
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = if (compact) 12.dp else 20.dp, vertical = 12.dp)) {
-        if (compact) {
+        if (!showingDetail && compact) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(section, color = Cream, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 if (loading || searchLoading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
             }
             OutlinedTextField(
@@ -868,9 +871,8 @@ private fun CatalogScreen(
                     else Text("⌕", color = Cyan, fontSize = 21.sp)
                 }
             )
-        } else {
+        } else if (!showingDetail) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text(section.uppercase(), color = Cream, fontSize = 25.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 OutlinedTextField(
                     value = searchText,
                     onValueChange = { searchText = it },
@@ -886,7 +888,7 @@ private fun CatalogScreen(
                 if (loading || searchLoading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
             }
         }
-        Spacer(Modifier.height(12.dp))
+        if (!showingDetail) Spacer(Modifier.height(12.dp))
         @Composable
         fun CatalogContent(modifier: Modifier = Modifier) {
             Column(modifier) {
@@ -940,7 +942,9 @@ private fun CatalogScreen(
                 }
             }
         }
-        if (compact) {
+        if (showingDetail) {
+            CatalogContent(Modifier.weight(1f).fillMaxWidth())
+        } else if (compact) {
             Column(Modifier.fillMaxSize()) {
                 Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -1029,7 +1033,7 @@ private fun FilmDetailScreen(
         }
         if (loading && details == null && item != null) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Rust)
         if (compact) {
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
                     NetworkArtwork(poster, Modifier.width(112.dp).height(164.dp), landscape = false)
                     Column(Modifier.weight(1f)) {
@@ -1042,14 +1046,16 @@ private fun FilmDetailScreen(
                     }
                 }
                 details?.cast?.takeIf(String::isNotBlank)?.let { DetailLine("Avec", it) }
-                if (!plot.isNullOrBlank()) Text(plot, color = Cream.copy(alpha = .88f), fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 12.dp))
-                else if (!loading) Text("Aucun synopsis fourni par cette source.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
-                Button(
-                    onClick = { item?.let(onPlayXtream); m3uItem?.let(onPlayM3u) },
-                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Rust, contentColor = Cream)
-                ) { Text("▶  Lire le film") }
+                Column(Modifier.weight(1f).fillMaxWidth().padding(top = 8.dp).verticalScroll(rememberScrollState())) {
+                    if (!plot.isNullOrBlank()) Text(plot, color = Cream.copy(alpha = .88f), fontSize = 14.sp, lineHeight = 20.sp)
+                    else if (!loading) Text("Aucun synopsis fourni par cette source.", color = Muted, fontSize = 13.sp)
+                }
             }
+            Button(
+                onClick = { item?.let(onPlayXtream); m3uItem?.let(onPlayM3u) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Rust, contentColor = Cream)
+            ) { Text("▶  Lire le film") }
         } else {
             Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                 NetworkArtwork(poster, Modifier.width(145.dp).fillMaxHeight(.72f), landscape = false)
@@ -1114,7 +1120,9 @@ private fun SeriesDetailScreen(
                 }
                 val compactPlot = media?.plot ?: item.plot
                 if (!compactPlot.isNullOrBlank()) {
-                    Text(compactPlot, color = Cream.copy(alpha = .82f), fontSize = 11.sp, maxLines = 2, modifier = Modifier.padding(top = 6.dp))
+                    Column(Modifier.fillMaxWidth().heightIn(max = 48.dp).padding(top = 4.dp).verticalScroll(rememberScrollState())) {
+                        Text(compactPlot, color = Cream.copy(alpha = .82f), fontSize = 11.sp, lineHeight = 15.sp)
+                    }
                 }
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     details?.seasons.orEmpty().forEach { season ->
@@ -1244,6 +1252,13 @@ private fun HeaderNavigation(
                     modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onNavigate("Paramètres") }
                         .focusable().padding(horizontal = 10.dp, vertical = 4.dp)
                 )
+                Text(
+                    "Paramètres",
+                    color = if (section == "Paramètres") Rust else Cream,
+                    fontSize = 12.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onNavigate("Paramètres") }
+                        .focusable().padding(end = 4.dp, vertical = 6.dp)
+                )
             }
             Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 5.dp),
@@ -1338,7 +1353,6 @@ private fun SectionBanner(section: String) {
         Image(painterResource(background), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         Box(Modifier.fillMaxSize().background(Color(0x880E0D0B)))
         Column(Modifier.align(Alignment.CenterStart).padding(horizontal = 22.dp, vertical = 8.dp)) {
-            Text("WESTERN  ·  RÉTROFUTURISTE", color = Cyan, fontSize = 9.sp, letterSpacing = 1.5.sp)
             Text(heading, color = Cream, fontSize = if (compact) 18.sp else 21.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
         Column(Modifier.align(Alignment.TopEnd).padding(horizontal = 12.dp, vertical = 7.dp), horizontalAlignment = Alignment.End) {
