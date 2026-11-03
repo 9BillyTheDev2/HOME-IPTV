@@ -4,8 +4,14 @@ import android.app.Activity
 import android.net.Uri
 import android.os.Bundle
 import android.view.ViewGroup
+import android.widget.Toast
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 
 class PlaybackActivity : Activity() {
@@ -33,9 +39,40 @@ class PlaybackActivity : Activity() {
 
         val view = PlayerView(this).apply { layoutParams = ViewGroup.LayoutParams(-1, -1); useController = true }
         setContentView(view)
-        player = ExoPlayer.Builder(this).build().also { exo ->
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+        val dataSourceFactory = DefaultDataSource.Factory(this, httpFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+        player = ExoPlayer.Builder(this).setMediaSourceFactory(mediaSourceFactory).build().also { exo ->
             view.player = exo
-            exo.setMediaItem(MediaItem.fromUri(url))
+            val inferredMimeType = when {
+                url.contains(".m3u8", ignoreCase = true) -> "application/x-mpegURL"
+                url.contains(".mpd", ignoreCase = true) -> "application/dash+xml"
+                else -> null
+            }
+            val mediaItem = MediaItem.Builder().setUri(uri).apply {
+                inferredMimeType?.let { setMimeType(it) }
+            }.build()
+            exo.addListener(object : Player.Listener {
+                override fun onPlayerError(error: PlaybackException) {
+                    val explanation = when (error.errorCodeName) {
+                        "ERROR_CODE_IO_BAD_HTTP_STATUS" -> "Le serveur a refusé le flux."
+                        "ERROR_CODE_IO_NETWORK_CONNECTION_FAILED",
+                        "ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT" -> "Connexion au flux impossible."
+                        "ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED",
+                        "ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED" -> "Le format du flux n’est pas pris en charge."
+                        "ERROR_CODE_DECODING_FORMAT_UNSUPPORTED",
+                        "ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES" -> "Le codec audio ou vidéo n’est pas pris en charge par cet appareil."
+                        else -> "Lecture impossible."
+                    }
+                    Toast.makeText(
+                        this@PlaybackActivity,
+                        "$explanation Code : ${error.errorCodeName}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            })
+            exo.setMediaItem(mediaItem)
             exo.prepare()
             val position = intent.getLongExtra(EXTRA_POSITION, 0L).coerceAtLeast(0L)
             if (position > 0L) exo.seekTo(position)
