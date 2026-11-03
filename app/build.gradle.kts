@@ -29,9 +29,6 @@ android {
         buildTypes.getByName("release") {
             signingConfig = releaseSigning
         }
-        buildTypes.getByName("debug") {
-            signingConfig = releaseSigning
-        }
     }
 
     buildFeatures {
