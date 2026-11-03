@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 22090)
-Total output lines: 1593
-
 package fr.homeiptv.v2
 
 import android.app.Activity
@@ -738,7 +735,160 @@ private fun AddSourceDialog(onDismiss: () -> Unit, onSave: (String, String, Stri
         val validHttpUrl = (uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) && !uri.host.isNullOrBlank()
         validationError = when {
             name.isBlank() -> "Donne un nom à cette source."
-            !validHttpUrl -> "Entre une adr…2090 tokens truncated…                 chooseM3uGroup(group)
+            !validHttpUrl -> "Entre une adresse HTTP ou HTTPS complète avec un nom de serveur valide."
+            kind == "Xtream" && (user.isBlank() || pass.isBlank()) -> "Renseigne l’identifiant et le mot de passe Xtream."
+            else -> null
+        }
+        if (validationError == null) onSave(name.trim(), kind, endpoint.trim(), user.trim(), pass)
+    }) { Text("Tester et ajouter") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } })
+}
+
+@Composable
+private fun CatalogScreen(
+    section: String,
+    sourceKind: String,
+    sourceKey: String,
+    favorites: List<FavoriteContent>,
+    records: List<Any>,
+    categories: List<XtreamCategory>,
+    selectedGroup: String?,
+    loading: Boolean,
+    searchLoading: Boolean,
+    searchResults: List<XtreamItem>,
+    message: String,
+    filmItem: XtreamItem?,
+    filmDetails: XtreamMediaDetails?,
+    m3uFilm: PlaylistEntry?,
+    seriesItem: XtreamItem?,
+    seriesDetails: XtreamSeriesDetails?,
+    selectedSeason: String?,
+    onSelectSeason: (String) -> Unit,
+    onBackDetails: () -> Unit,
+    onPlayFilm: (XtreamItem) -> Unit,
+    onPlayM3uFilm: (PlaylistEntry) -> Unit,
+    onToggleFavorite: (FavoriteContent) -> Unit,
+    favoriteXtreamUrl: (String, XtreamItem) -> String,
+    onSearch: (String) -> Unit,
+    onSelectGroup: (String) -> Unit,
+    onPlayM3u: (PlaylistEntry) -> Unit,
+    onPlayXtream: (XtreamItem) -> Unit,
+    onFilm: (XtreamItem) -> Unit,
+    onSeries: (XtreamItem) -> Unit,
+    onPlayEpisode: (XtreamEpisodeInfo) -> Unit
+) {
+    var searchText by remember(section) { mutableStateOf("") }
+    val screenWidth = LocalConfiguration.current.screenWidthDp
+    val compact = screenWidth < 600
+    val categoryRailWidth = if (screenWidth < 700) 148.dp else 220.dp
+    var variantChoices by remember(section) { mutableStateOf<List<VariantChoice>?>(null) }
+    val query = normalizeSearchText(searchText.trim())
+    LaunchedEffect(query, sourceKind) {
+        if (sourceKind == "Xtream" && query.length >= 2) {
+            delay(500)
+            onSearch(query)
+        } else {
+            onSearch("")
+        }
+    }
+
+    val m3uEntries = remember(records) { records.filterIsInstance<PlaylistEntry>() }
+    val groups = if (sourceKind == "M3U") m3uEntries.map { it.group }.distinct().sorted() else categories.map { it.name }
+    val filteredM3u = m3uEntries.filter { entry ->
+        val groupMatches = query.isNotBlank() || selectedGroup == null || selectedGroup == entry.group
+        groupMatches && (query.isBlank() || normalizeSearchText(entry.name + " " + entry.group).contains(query))
+    }
+    val groupedM3u = remember(filteredM3u) { groupM3uVariants(filteredM3u) }
+    val displayedItems = if (query.isNotBlank()) searchResults else records.filterIsInstance<XtreamItem>()
+    val groupedXtream = remember(displayedItems, section) { groupXtreamVariants(displayedItems, section) }
+    val categoryName: (XtreamItem) -> String = { item ->
+        categories.firstOrNull { item.categoryId in it.ids }?.name ?: selectedGroup ?: "Autres"
+    }
+    fun chooseM3uGroup(group: M3uVariantGroup) {
+        if (group.entries.size == 1) {
+            onPlayM3u(group.entries.first())
+        } else {
+            variantChoices = group.entries.mapIndexed { index, entry ->
+                val descriptors = listOf(entry.group, qualityOrLanguageHint(entry.name)).filterNotNull().filter { it.isNotBlank() }
+                VariantChoice(entry.name, descriptors.distinct().joinToString(" · ").ifBlank { "Flux alternatif ${index + 1}" }) {
+                    onPlayM3u(entry)
+                }
+            }
+        }
+    }
+    fun chooseXtreamGroup(group: XtreamVariantGroup) {
+        if (group.items.size == 1) {
+            val item = group.items.first()
+            when (section) { "Séries" -> onSeries(item); "Films" -> onFilm(item); else -> onPlayXtream(item) }
+        } else {
+            variantChoices = group.items.mapIndexed { index, item ->
+                val descriptors = listOf(
+                    categoryName(item),
+                    item.year,
+                    item.extension?.let { it.uppercase().removePrefix(".") }
+                ).filterNotNull().filter { it.isNotBlank() }
+                VariantChoice(item.name, descriptors.distinct().joinToString(" · ").ifBlank { "Flux alternatif ${index + 1}" }) {
+                    when (section) { "Séries" -> onSeries(item); "Films" -> onFilm(item); else -> onPlayXtream(item) }
+                }
+            }
+        }
+    }
+
+    Column(Modifier.fillMaxSize().padding(horizontal = if (compact) 12.dp else 20.dp, vertical = 12.dp)) {
+        if (compact) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(section, color = Cream, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                if (loading || searchLoading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            }
+            OutlinedTextField(
+                value = searchText,
+                onValueChange = { searchText = it },
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                singleLine = true,
+                label = { Text("Rechercher") },
+                placeholder = { Text("Chaîne, film ou série") },
+                trailingIcon = {
+                    if (searchText.isNotEmpty()) TextButton(onClick = { searchText = "" }) { Text("×") }
+                    else Text("⌕", color = Cyan, fontSize = 21.sp)
+                }
+            )
+        } else {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(section.uppercase(), color = Cream, fontSize = 25.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                OutlinedTextField(
+                    value = searchText,
+                    onValueChange = { searchText = it },
+                    modifier = Modifier.widthIn(min = 220.dp, max = 360.dp),
+                    singleLine = true,
+                    label = { Text("Tout rechercher") },
+                    placeholder = { Text("Chaîne, film ou série") },
+                    trailingIcon = {
+                        if (searchText.isNotEmpty()) TextButton(onClick = { searchText = "" }) { Text("×") }
+                        else Text("⌕", color = Cyan, fontSize = 21.sp)
+                    }
+                )
+                if (loading || searchLoading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        @Composable
+        fun CatalogContent(modifier: Modifier = Modifier) {
+            Column(modifier) {
+                if (seriesItem != null) {
+                    SeriesDetailScreen(seriesItem, seriesDetails, selectedSeason, loading, onSelectSeason, onBackDetails, onPlayEpisode)
+                } else if (filmItem != null || m3uFilm != null) {
+                    FilmDetailScreen(filmItem, filmDetails, m3uFilm, loading, onBackDetails, onPlayFilm, onPlayM3uFilm)
+                } else if (sourceKind == "M3U") {
+                    if (filteredM3u.isEmpty() && !loading) Text(if (message.isNotBlank()) message else "Aucun contenu trouvé.", color = Muted, modifier = Modifier.padding(16.dp))
+                    LazyVerticalGrid(columns = GridCells.Adaptive(if (compact) 138.dp else 128.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(groupedM3u, key = { it.key }) { group ->
+                            val entry = group.entries.first()
+                            val kind = when (section) { "TV en direct" -> "live"; "Séries" -> "series"; else -> "vod" }
+                            val key = stableFavoriteKey(kind, entry.name, entry.group, sourceKey)
+                            CatalogGridCard(entry.name, entry.group, entry.logo, landscape = section == "TV en direct", variantCount = group.entries.size,
+                                favorite = favorites.any { it.key == key }, onToggleFavorite = {
+                                    onToggleFavorite(FavoriteContent(key, kind, entry.name, entry.group, entry.logo, entry.url, entry.group, sourceKey))
+                                }) {
+                                chooseM3uGroup(group)
                             }
                         }
                     }
