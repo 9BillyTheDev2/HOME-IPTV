@@ -58,8 +58,9 @@ jobs:
           printf '%s' "$KEYSTORE_CLEAN" | base64 --decode > "$RUNNER_TEMP/home-iptv-release.jks"
           chmod 600 "$RUNNER_TEMP/home-iptv-release.jks"
           keytool -list -keystore "$RUNNER_TEMP/home-iptv-release.jks" -storepass "$STORE_PASSWORD" -alias "$ALIAS" >/dev/null
-          echo "HOME_IPTV_KEYSTORE_PATH=$RUNNER_TEMP/home-iptv-release.jks" >> "$GITHUB_ENV"
       - name: Build debug APK
+        env:
+          HOME_IPTV_KEYSTORE_PATH: ${{ runner.temp }}/home-iptv-release.jks
         run: gradle --no-daemon :app:assembleDebug
       - uses: actions/upload-artifact@v4
         with:
@@ -68,6 +69,7 @@ jobs:
       - name: Build and prepare a draft update
         if: steps.signing.outputs.available == 'true'
         env:
+          HOME_IPTV_KEYSTORE_PATH: ${{ runner.temp }}/home-iptv-release.jks
           HOME_IPTV_KEYSTORE_PASSWORD: ${{ secrets.HOME_IPTV_KEYSTORE_PASSWORD }}
           HOME_IPTV_KEY_ALIAS: ${{ secrets.HOME_IPTV_KEY_ALIAS }}
           HOME_IPTV_KEY_PASSWORD: ${{ secrets.HOME_IPTV_KEY_PASSWORD }}
@@ -89,14 +91,14 @@ jobs:
           APK_PATH="$RUNNER_TEMP/$APK_NAME"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK_PATH"
           SHA256=$(sha256sum "$APK_PATH" | cut -d ' ' -f 1)
-          printf '%s  %s\n' "$SHA256" "$APK_NAME" > "$RUNNER_TEMP/$APK_NAME.sha256"
-          jq -n --arg name "$APK_NAME" --arg version "$VERSION_NAME" --arg hash "$SHA256" --argjson code "$VERSION_CODE" \
+          printf '%s  %s\\n' "$SHA256" "$APK_NAME" > "$RUNNER_TEMP/$APK_NAME.sha256"
+          jq -n --arg name "$APK_NAME" --arg version "$VERSION_NAME" --arg hash "$SHA256" --argjson code "$VERSION_CODE" \\
             '{versionCode:$code, versionName:$version, apkFileName:$name, sha256:$hash}' > "$RUNNER_TEMP/home-iptv-update.json"
-          gh release create "$TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --draft \
-            --prerelease \
-            --title "HOME IPTV $VERSION_NAME" \
-            --notes "APK compilée automatiquement après une modification du dépôt. Vérifie le code et l’APK, puis publie ce brouillon pour la rendre visible dans l’application. HOME IPTV demandera ensuite l’accord de l’utilisateur avant d’ouvrir l’installateur Android." \
+          gh release create "$TAG" \\
+            --repo "$GITHUB_REPOSITORY" \\
+            --target "$GITHUB_SHA" \\
+            --draft \\
+            --prerelease \\
+            --title "HOME IPTV $VERSION_NAME" \\
+            --notes "APK compilée automatiquement après une modification du dépôt. Vérifie le code et l’APK, puis publie ce brouillon pour la rendre visible dans l’application. HOME IPTV demandera ensuite l’accord de l’utilisateur avant d’ouvrir l’installateur Android." \\
             "$APK_PATH" "$RUNNER_TEMP/$APK_NAME.sha256" "$RUNNER_TEMP/home-iptv-update.json"
