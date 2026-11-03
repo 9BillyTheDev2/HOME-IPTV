@@ -10,7 +10,6 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,9 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -209,6 +206,7 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                 onSearch = { if (section !in listOf("TV en direct", "Films", "Séries")) section = "Films" }
             )
             SectionBanner(section)
+            Box(Modifier.weight(1f).fillMaxWidth()) {
             when (section) {
                 "Paramètres" -> SettingsScreen(profiles, active, onAdd = { adding = true }, onSelect = {
                     store.setActive(it.id); active = it
@@ -417,6 +415,8 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                     }
                 )
             }
+            }
+            BottomSceneryBand()
         }
         availableUpdate?.let { update ->
             AlertDialog(
@@ -1265,12 +1265,9 @@ private fun SectionBanner(section: String) {
             delay(60_000L)
         }
     }
-    val moment = now / 300_000L
-    val sceneNames = listOf("Bourg animé", "Grande prairie", "Rivière", "Montagnes", "Vallée boisée")
-    val weather = listOf("☀  Clair", "☂  Pluie", "❄  Neige", "⛈  Orage")[(moment % 4L).toInt()]
+    val background = rememberRandomFrontierBackground()
     Box(Modifier.fillMaxWidth().height(if (compact) 76.dp else 96.dp)) {
-        Image(painterResource(R.drawable.home_frontier), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        WesternScene(moment, Modifier.fillMaxSize())
+        Image(painterResource(background), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         Box(Modifier.fillMaxSize().background(Color(0x880E0D0B)))
         Column(Modifier.align(Alignment.CenterStart).padding(horizontal = 22.dp, vertical = 8.dp)) {
             Text("WESTERN  ·  RÉTROFUTURISTE", color = Cyan, fontSize = 9.sp, letterSpacing = 1.5.sp)
@@ -1278,77 +1275,40 @@ private fun SectionBanner(section: String) {
         }
         Column(Modifier.align(Alignment.TopEnd).padding(horizontal = 12.dp, vertical = 7.dp), horizontalAlignment = Alignment.End) {
             Text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(now)), color = Cream, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Text("${sceneNames[(moment % sceneNames.size).toInt()]}  ·  $weather", color = Muted, fontSize = 9.sp, maxLines = 1)
         }
     }
 }
 
 @Composable
-private fun WesternScene(moment: Long, modifier: Modifier = Modifier) {
-    Canvas(modifier) {
-        val scene = (moment % 5L).toInt()
-        val w = size.width
-        val h = size.height
-        val ground = h * .77f
-        val warm = Color(0xFFC95132).copy(alpha = .55f)
-        val shadow = Color(0xFF17130F).copy(alpha = .82f)
-        val hill = Color(0xFF38261B).copy(alpha = .78f)
-        val skyTint = listOf(Color(0xFF8A4D35), Color(0xFF3A4A43), Color(0xFF354544), Color(0xFF55413B), Color(0xFF2F463B))[scene].copy(alpha = .18f)
-        drawRect(skyTint)
-        val ridge = Path().apply {
-            moveTo(0f, ground)
-            when (scene) {
-                0 -> { lineTo(w * .18f, ground - h * .14f); lineTo(w * .26f, ground - h * .14f); lineTo(w * .26f, ground - h * .24f); lineTo(w * .37f, ground - h * .24f); lineTo(w * .37f, ground - h * .09f); lineTo(w * .62f, ground - h * .13f) }
-                1 -> { lineTo(w * .22f, ground - h * .11f); lineTo(w * .5f, ground - h * .18f); lineTo(w * .77f, ground - h * .1f) }
-                2 -> { lineTo(w * .18f, ground - h * .18f); lineTo(w * .45f, ground - h * .12f); lineTo(w * .72f, ground - h * .2f) }
-                3 -> { lineTo(w * .2f, ground - h * .26f); lineTo(w * .33f, ground - h * .1f); lineTo(w * .61f, ground - h * .32f); lineTo(w * .82f, ground - h * .12f) }
-                else -> { lineTo(w * .15f, ground - h * .16f); lineTo(w * .35f, ground - h * .11f); lineTo(w * .58f, ground - h * .23f); lineTo(w * .82f, ground - h * .1f) }
-            }
-            lineTo(w, ground)
-            lineTo(w, h)
-            lineTo(0f, h)
-            close()
+private fun rememberRandomFrontierBackground(): Int {
+    val backgrounds = remember {
+        listOf(
+            R.drawable.frontier_scene_0,
+            R.drawable.frontier_scene_1,
+            R.drawable.frontier_scene_2,
+            R.drawable.frontier_scene_3,
+            R.drawable.frontier_scene_4,
+            R.drawable.frontier_scene_5
+        )
+    }
+    var current by remember { mutableStateOf(backgrounds.random()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(5 * 60_000L)
+            current = backgrounds.filterNot { it == current }.random()
         }
-        drawPath(ridge, hill)
-        drawRect(shadow.copy(alpha = .25f), topLeft = androidx.compose.ui.geometry.Offset(0f, ground), size = androidx.compose.ui.geometry.Size(w, h - ground))
-        when (scene) {
-            0 -> for (i in 0..3) {
-                val x = w * (.16f + i * .17f)
-                drawRect(shadow, androidx.compose.ui.geometry.Offset(x, ground - h * .18f), androidx.compose.ui.geometry.Size(w * .055f, h * .18f))
-                drawRect(warm.copy(alpha = .28f), androidx.compose.ui.geometry.Offset(x + w * .01f, ground - h * .12f), androidx.compose.ui.geometry.Size(w * .012f, h * .045f))
-            }
-            1, 4 -> for (i in 0..8) {
-                val x = w * (.04f + i * .115f)
-                val treeHeight = h * (.12f + ((i * 7 + scene) % 3) * .03f)
-                val crown = Path().apply { moveTo(x, ground); lineTo(x + w * .025f, ground - treeHeight); lineTo(x + w * .05f, ground); close() }
-                drawPath(crown, shadow)
-            }
-            2 -> {
-                val river = Path().apply { moveTo(w * .35f, ground); cubicTo(w * .42f, ground - h * .05f, w * .53f, ground + h * .02f, w * .62f, h); lineTo(w * .8f, h); cubicTo(w * .69f, ground + h * .02f, w * .54f, ground - h * .03f, w * .48f, ground); close() }
-                drawPath(river, Color(0xFF5E756E).copy(alpha = .55f))
-            }
-        }
-        // Quelques silhouettes discrètes donnent de la vie au décor sans couvrir les affiches.
-        val riderX = w * (.76f + ((moment % 4L) * .035f).toFloat())
-        val riderY = ground - h * .12f
-        drawOval(shadow, androidx.compose.ui.geometry.Offset(riderX, riderY + h * .055f), androidx.compose.ui.geometry.Size(w * .07f, h * .035f))
-        drawCircle(shadow, h * .018f, androidx.compose.ui.geometry.Offset(riderX + w * .035f, riderY))
-        drawLine(shadow, androidx.compose.ui.geometry.Offset(riderX + w * .035f, riderY + h * .012f), androidx.compose.ui.geometry.Offset(riderX + w * .045f, riderY + h * .065f), strokeWidth = h * .012f)
-        val weatherIndex = (moment % 4L).toInt()
-        if (weatherIndex == 1 || weatherIndex == 3) {
-            for (i in 0..14) {
-                val x = w * ((i * 37 % 100) / 100f)
-                val y = h * ((i * 19 % 65) / 100f)
-                drawLine(Color(0xFFB7ADA2).copy(alpha = .38f), androidx.compose.ui.geometry.Offset(x, y), androidx.compose.ui.geometry.Offset(x - h * .018f, y + h * .07f), strokeWidth = h * .006f)
-            }
-        } else if (weatherIndex == 2) {
-            for (i in 0..12) {
-                val x = w * ((i * 31 % 100) / 100f)
-                val y = h * ((i * 23 % 55) / 100f)
-                drawCircle(Cream.copy(alpha = .55f), h * .012f, androidx.compose.ui.geometry.Offset(x, y))
-            }
-        }
-        drawRect(Brush.verticalGradient(listOf(Color.Transparent, shadow.copy(alpha = .38f)), startY = h * .48f, endY = h))
+    }
+    return current
+}
+
+@Composable
+private fun BottomSceneryBand() {
+    val compact = LocalConfiguration.current.screenWidthDp < 600
+    val background = rememberRandomFrontierBackground()
+    Box(Modifier.fillMaxWidth().height(if (compact) 25.dp else 34.dp)) {
+        Image(painterResource(background), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        Box(Modifier.fillMaxSize().background(Color(0xAA100D0B)))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Rust.copy(alpha = .58f)))
     }
 }
 
