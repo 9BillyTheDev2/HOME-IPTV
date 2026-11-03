@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -91,8 +92,12 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
     var records by remember { mutableStateOf<List<Any>>(emptyList()) }
     var xtreamCategories by remember { mutableStateOf<List<XtreamCategory>>(emptyList()) }
     var categoryOpen by remember { mutableStateOf(false) }
-    var seriesEpisodes by remember { mutableStateOf<List<XtreamItem>?>(null) }
     var selectedSeries by remember { mutableStateOf<XtreamItem?>(null) }
+    var seriesDetails by remember { mutableStateOf<XtreamSeriesDetails?>(null) }
+    var selectedSeason by remember { mutableStateOf<String?>(null) }
+    var selectedFilm by remember { mutableStateOf<XtreamItem?>(null) }
+    var filmDetails by remember { mutableStateOf<XtreamMediaDetails?>(null) }
+    var m3uFilm by remember { mutableStateOf<PlaylistEntry?>(null) }
     var recentContent by remember { mutableStateOf(store.recents()) }
     var searchResults by remember { mutableStateOf<List<XtreamItem>>(emptyList()) }
     var searchLoading by remember { mutableStateOf(false) }
@@ -118,8 +123,12 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
         selectedGroup = null
         categoryOpen = false
         xtreamCategories = emptyList()
-        seriesEpisodes = null
         selectedSeries = null
+        seriesDetails = null
+        selectedSeason = null
+        selectedFilm = null
+        filmDetails = null
+        m3uFilm = null
         searchResults = emptyList()
         message = ""
         val profile = active ?: return@LaunchedEffect
@@ -198,8 +207,22 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                     searchLoading = searchLoading,
                     searchResults = searchResults,
                     message = message,
-                    episodes = seriesEpisodes,
-                    seriesTitle = selectedSeries?.name,
+                    filmItem = selectedFilm,
+                    filmDetails = filmDetails,
+                    m3uFilm = m3uFilm,
+                    seriesItem = selectedSeries,
+                    seriesDetails = seriesDetails,
+                    selectedSeason = selectedSeason,
+                    onSelectSeason = { selectedSeason = it },
+                    onBackDetails = {
+                        selectedFilm = null; filmDetails = null; m3uFilm = null
+                        selectedSeries = null; seriesDetails = null; selectedSeason = null
+                    },
+                    onPlayFilm = { item ->
+                        val p = active
+                        if (p != null) activity.play(XtreamClient(p.endpoint, p.user, p.password).streamUrl("vod", item), "vod", item.name, item.year ?: "", item.logo, selectedGroup.orEmpty())
+                    },
+                    onPlayM3uFilm = { entry -> activity.play(entry.url, "vod", entry.name, entry.group, entry.logo, entry.group) },
                     onSearch = { query ->
                         searchJob?.cancel()
                         val profile = active
@@ -221,8 +244,12 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                     },
                     onSelectGroup = { name ->
                         selectedGroup = name.ifBlank { null }
-                        seriesEpisodes = null
                         selectedSeries = null
+                        seriesDetails = null
+                        selectedSeason = null
+                        selectedFilm = null
+                        filmDetails = null
+                        m3uFilm = null
                         if (active?.kind == "Xtream") {
                             val category = xtreamCategories.firstOrNull { it.name == name }
                             if (category != null) scope.launch {
@@ -237,7 +264,9 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                         }
                     },
                     onPlayM3u = { entry ->
-                        activity.play(entry.url, selectedTab, entry.name, entry.group, entry.logo, entry.group)
+                        if (selectedTab == "vod") {
+                            m3uFilm = entry; selectedFilm = null; filmDetails = null
+                        } else activity.play(entry.url, selectedTab, entry.name, entry.group, entry.logo, entry.group)
                     },
                     onPlayXtream = { item ->
                         val kind = selectedTab
@@ -248,23 +277,34 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                             xtreamCategories.firstOrNull { item.categoryId in it.ids }?.name.orEmpty()
                         )
                     },
-                    onSeries = { item ->
-                        val p = active
-                        selectedSeries = item
-                        if (p != null) scope.launch {
-                            loading = true
-                            try { seriesEpisodes = XtreamClient(p.endpoint, p.user, p.password).episodes(item.id) }
-                            catch (e: Exception) { message = e.message ?: "Impossible de charger les épisodes." }
+                    onFilm = { item ->
+                        val p = active ?: return@CatalogScreen
+                        selectedFilm = item; m3uFilm = null; filmDetails = null
+                        scope.launch {
+                            loading = true; message = ""
+                            try { filmDetails = XtreamClient(p.endpoint, p.user, p.password).vodDetails(item) }
+                            catch (e: Exception) { message = e.message ?: "Les détails du film ne sont pas disponibles." }
                             loading = false
                         }
                     },
-                    onBackEpisodes = { seriesEpisodes = null; selectedSeries = null },
+                    onSeries = { item ->
+                        val p = active ?: return@CatalogScreen
+                        selectedSeries = item; selectedSeason = null; seriesDetails = null
+                        scope.launch {
+                            loading = true; message = ""
+                            try {
+                                seriesDetails = XtreamClient(p.endpoint, p.user, p.password).seriesDetails(item)
+                                selectedSeason = seriesDetails?.seasons?.firstOrNull()?.number
+                            } catch (e: Exception) { message = e.message ?: "Impossible de charger les saisons et épisodes." }
+                            loading = false
+                        }
+                    },
                     onPlayEpisode = { episode ->
                         val p = active
                         val series = selectedSeries
                         if (p != null && series != null) activity.play(
-                            XtreamClient(p.endpoint, p.user, p.password).streamUrl("series", episode),
-                            "series", series.name, episode.name, series.logo,
+                            XtreamClient(p.endpoint, p.user, p.password).streamUrl("series", episode.item),
+                            "series", series.name, episode.item.name, episode.thumbnail ?: series.logo,
                             xtreamCategories.firstOrNull { series.categoryId in it.ids }?.name.orEmpty()
                         )
                     }
@@ -444,17 +484,26 @@ private fun CatalogScreen(
     searchLoading: Boolean,
     searchResults: List<XtreamItem>,
     message: String,
-    episodes: List<XtreamItem>?,
-    seriesTitle: String?,
+    filmItem: XtreamItem?,
+    filmDetails: XtreamMediaDetails?,
+    m3uFilm: PlaylistEntry?,
+    seriesItem: XtreamItem?,
+    seriesDetails: XtreamSeriesDetails?,
+    selectedSeason: String?,
+    onSelectSeason: (String) -> Unit,
+    onBackDetails: () -> Unit,
+    onPlayFilm: (XtreamItem) -> Unit,
+    onPlayM3uFilm: (PlaylistEntry) -> Unit,
     onSearch: (String) -> Unit,
     onSelectGroup: (String) -> Unit,
     onPlayM3u: (PlaylistEntry) -> Unit,
     onPlayXtream: (XtreamItem) -> Unit,
+    onFilm: (XtreamItem) -> Unit,
     onSeries: (XtreamItem) -> Unit,
-    onBackEpisodes: () -> Unit,
-    onPlayEpisode: (XtreamItem) -> Unit
+    onPlayEpisode: (XtreamEpisodeInfo) -> Unit
 ) {
     var searchText by remember(section) { mutableStateOf("") }
+    val categoryRailWidth = if (LocalConfiguration.current.screenWidthDp < 700) 148.dp else 220.dp
     var variantChoices by remember(section) { mutableStateOf<List<VariantChoice>?>(null) }
     val query = normalizeSearchText(searchText.trim())
     LaunchedEffect(query, sourceKind) {
@@ -493,7 +542,7 @@ private fun CatalogScreen(
     fun chooseXtreamGroup(group: XtreamVariantGroup) {
         if (group.items.size == 1) {
             val item = group.items.first()
-            if (section == "Séries") onSeries(item) else onPlayXtream(item)
+            when (section) { "Séries" -> onSeries(item); "Films" -> onFilm(item); else -> onPlayXtream(item) }
         } else {
             variantChoices = group.items.mapIndexed { index, item ->
                 val descriptors = listOf(
@@ -502,7 +551,7 @@ private fun CatalogScreen(
                     item.extension?.let { it.uppercase().removePrefix(".") }
                 ).filterNotNull().filter { it.isNotBlank() }
                 VariantChoice(item.name, descriptors.distinct().joinToString(" · ").ifBlank { "Flux alternatif ${index + 1}" }) {
-                    if (section == "Séries") onSeries(item) else onPlayXtream(item)
+                    when (section) { "Séries" -> onSeries(item); "Films" -> onFilm(item); else -> onPlayXtream(item) }
                 }
             }
         }
@@ -528,7 +577,7 @@ private fun CatalogScreen(
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(
-                Modifier.width(220.dp).fillMaxHeight().clip(RoundedCornerShape(14.dp)).background(Color(0xFF151B20))
+                Modifier.width(categoryRailWidth).fillMaxHeight().clip(RoundedCornerShape(14.dp)).background(Color(0xFF151B20))
                     .verticalScroll(rememberScrollState()).padding(12.dp)
             ) {
                 Text("CATÉGORIES", color = Cyan, fontSize = 11.sp, letterSpacing = 1.5.sp, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp))
@@ -541,17 +590,10 @@ private fun CatalogScreen(
                 if (groups.isEmpty() && categories.isEmpty()) Text("Aucune catégorie", color = Muted, modifier = Modifier.padding(8.dp))
             }
             Column(Modifier.weight(1f).fillMaxHeight()) {
-                if (episodes != null) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = onBackEpisodes) { Text("← Séries") }
-                        Text("Épisodes · ${seriesTitle.orEmpty()}", color = Cream, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    }
-                    if (episodes.isEmpty() && !loading) Text("Aucun épisode trouvé.", color = Muted, modifier = Modifier.padding(16.dp))
-                    LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(episodes, key = { it.id }) { item ->
-                            CatalogGridCard(item.name, item.plot ?: item.year.orEmpty(), item.logo, landscape = false) { onPlayEpisode(item) }
-                        }
-                    }
+                if (seriesItem != null) {
+                    SeriesDetailScreen(seriesItem, seriesDetails, selectedSeason, loading, onSelectSeason, onBackDetails, onPlayEpisode)
+                } else if (filmItem != null || m3uFilm != null) {
+                    FilmDetailScreen(filmItem, filmDetails, m3uFilm, loading, onBackDetails, onPlayFilm, onPlayM3uFilm)
                 } else if (sourceKind == "M3U") {
                     if (filteredM3u.isEmpty() && !loading) Text(if (message.isNotBlank()) message else "Aucun contenu trouvé.", color = Muted, modifier = Modifier.padding(16.dp))
                     LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -608,6 +650,115 @@ private fun CatalogScreen(
             confirmButton = { TextButton(onClick = { variantChoices = null }) { Text("Fermer") } }
         )
     }
+}
+
+
+@Composable
+private fun FilmDetailScreen(
+    item: XtreamItem?,
+    details: XtreamMediaDetails?,
+    m3uItem: PlaylistEntry?,
+    loading: Boolean,
+    onBack: () -> Unit,
+    onPlayXtream: (XtreamItem) -> Unit,
+    onPlayM3u: (PlaylistEntry) -> Unit
+) {
+    val title = details?.title ?: item?.name ?: m3uItem?.name.orEmpty()
+    val poster = details?.poster ?: item?.logo ?: m3uItem?.logo
+    val plot = details?.plot ?: item?.plot
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack) { Text("← Films") }
+            Text(title, color = Cream, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        if (loading && details == null && item != null) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Rust)
+        Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            NetworkArtwork(poster, Modifier.width(145.dp).fillMaxHeight(.72f), landscape = false)
+            Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(end = 12.dp)) {
+                Text(title, color = Cream, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                val metadata = listOfNotNull(details?.releaseDate ?: item?.year, details?.duration, details?.genre)
+                    .filter { it.isNotBlank() }.joinToString("  ·  ")
+                if (metadata.isNotBlank()) Text(metadata, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
+                details?.director?.takeIf(String::isNotBlank)?.let { DetailLine("Réalisation", it) }
+                details?.cast?.takeIf(String::isNotBlank)?.let { DetailLine("Avec", it) }
+                if (!plot.isNullOrBlank()) Text(plot, color = Cream.copy(alpha = .88f), fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 12.dp))
+                else if (!loading) Text("Aucun synopsis fourni par cette source.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
+                Button(
+                    onClick = { item?.let(onPlayXtream); m3uItem?.let(onPlayM3u) },
+                    modifier = Modifier.padding(top = 16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Rust, contentColor = Cream)
+                ) { Text("▶  Lire le film") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeriesDetailScreen(
+    item: XtreamItem,
+    details: XtreamSeriesDetails?,
+    selectedSeason: String?,
+    loading: Boolean,
+    onSelectSeason: (String) -> Unit,
+    onBack: () -> Unit,
+    onPlayEpisode: (XtreamEpisodeInfo) -> Unit
+) {
+    val media = details?.media
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack) { Text("← Séries") }
+            Text(media?.title ?: item.name, color = Cream, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        if (loading && details == null) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Rust)
+        Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            NetworkArtwork(media?.poster ?: item.logo, Modifier.width(132.dp).height(185.dp), landscape = false)
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                Text(media?.title ?: item.name, color = Cream, fontSize = 23.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+                val metadata = listOfNotNull(media?.releaseDate ?: item.year, media?.genre)
+                    .filter { it.isNotBlank() }.joinToString("  ·  ")
+                if (metadata.isNotBlank()) Text(metadata, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+                media?.director?.takeIf(String::isNotBlank)?.let { DetailLine("Réalisation", it) }
+                media?.cast?.takeIf(String::isNotBlank)?.let { DetailLine("Avec", it) }
+                val plot = media?.plot ?: item.plot
+                if (!plot.isNullOrBlank()) Text(plot, color = Cream.copy(alpha = .86f), fontSize = 13.sp, maxLines = 3, modifier = Modifier.padding(top = 7.dp))
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    details?.seasons.orEmpty().forEach { season ->
+                        TextButton(
+                            onClick = { onSelectSeason(season.number) },
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(if (selectedSeason == season.number) Rust else Panel)
+                        ) { Text("Saison ${season.number}", color = Cream, fontSize = 12.sp) }
+                    }
+                }
+                val episodes = details?.seasons?.firstOrNull { it.number == selectedSeason }?.episodes.orEmpty()
+                if (episodes.isEmpty() && !loading) Text("Aucun épisode trouvé pour cette saison.", color = Muted, modifier = Modifier.padding(top = 8.dp))
+                androidx.compose.foundation.lazy.LazyColumn(
+                    Modifier.fillMaxWidth().weight(1f).padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(episodes, key = { "${selectedSeason}-${it.item.id}" }) { episode ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(Panel).clickable { onPlayEpisode(episode) }.focusable().padding(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            NetworkArtwork(episode.thumbnail, Modifier.width(112.dp).height(64.dp), landscape = true)
+                            Column(Modifier.weight(1f)) {
+                                Text("S${selectedSeason ?: "?"}E${episode.number} · ${episode.item.name}", color = Cream, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
+                                val sub = listOfNotNull(episode.duration, episode.item.plot).joinToString(" · ")
+                                if (sub.isNotBlank()) Text(sub, color = Muted, fontSize = 11.sp, maxLines = 2)
+                            }
+                            Text("▶", color = Rust, fontSize = 20.sp, modifier = Modifier.padding(horizontal = 8.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailLine(label: String, value: String) {
+    Text("$label : $value", color = Muted, fontSize = 12.sp, maxLines = 2, modifier = Modifier.padding(top = 5.dp))
 }
 
 @Composable
