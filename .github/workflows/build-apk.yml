@@ -32,12 +32,6 @@ jobs:
         run: yes | sdkmanager --licenses
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
-      - name: Build debug APK
-        run: gradle --no-daemon :app:assembleDebug
-      - uses: actions/upload-artifact@v4
-        with:
-          name: home-iptv-v2-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
       - name: Check whether the private signing key is configured
         id: signing
         env:
@@ -60,6 +54,12 @@ jobs:
           echo "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/home-iptv-release.jks"
           chmod 600 "$RUNNER_TEMP/home-iptv-release.jks"
           echo "HOME_IPTV_KEYSTORE_PATH=$RUNNER_TEMP/home-iptv-release.jks" >> "$GITHUB_ENV"
+      - name: Build debug APK
+        run: gradle --no-daemon :app:assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: home-iptv-v2-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
       - name: Build and prepare a draft update
         if: steps.signing.outputs.available == 'true'
         env:
@@ -82,6 +82,7 @@ jobs:
           gradle --no-daemon :app:assembleRelease
           cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/$APK_NAME"
           APK_PATH="$RUNNER_TEMP/$APK_NAME"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK_PATH"
           SHA256=$(sha256sum "$APK_PATH" | cut -d ' ' -f 1)
           printf '%s  %s\n' "$SHA256" "$APK_NAME" > "$RUNNER_TEMP/$APK_NAME.sha256"
           jq -n --arg name "$APK_NAME" --arg version "$VERSION_NAME" --arg hash "$SHA256" --argjson code "$VERSION_CODE" \

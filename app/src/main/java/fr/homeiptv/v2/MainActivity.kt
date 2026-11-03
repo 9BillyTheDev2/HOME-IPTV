@@ -110,6 +110,7 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
     val selectedTab = when (section) { "Films" -> "vod"; "Séries" -> "series"; else -> "live" }
     var availableUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
     var updateMessage by remember { mutableStateOf<String?>(null) }
+    var updateStatusText by remember { mutableStateOf<String?>(null) }
     var checkingUpdate by remember { mutableStateOf(false) }
     var installingUpdate by remember { mutableStateOf(false) }
 
@@ -117,7 +118,13 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
 
     LaunchedEffect(Unit) {
         checkingUpdate = true
-        availableUpdate = runCatching { UpdateManager.findUpdate() }.getOrNull()
+        val result = runCatching { UpdateManager.findUpdate() }
+        availableUpdate = result.getOrNull()
+        updateStatusText = when {
+            result.isFailure -> "Vérification GitHub impossible. Réessaie depuis les paramètres."
+            availableUpdate != null -> "Version " + availableUpdate!!.versionName + " disponible."
+            else -> "Aucune mise à jour publiée sur GitHub."
+        }
         checkingUpdate = false
     }
 
@@ -191,16 +198,20 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                 }, onCheckUpdate = {
                     scope.launch {
                         checkingUpdate = true
+                        updateStatusText = null
                         val result = runCatching { UpdateManager.findUpdate() }
-                        checkingUpdate = false
                         availableUpdate = result.getOrNull()
-                        if (result.isFailure) updateMessage = "Impossible de vérifier les mises à jour. Réessaie plus tard."
-                        else if (availableUpdate == null) updateMessage = "Tu utilises déjà la dernière version publiée."
+                        updateStatusText = when {
+                            result.isFailure -> "Échec de la vérification : " + (result.exceptionOrNull()?.message ?: "erreur inconnue")
+                            availableUpdate != null -> "Version " + availableUpdate!!.versionName + " disponible."
+                            else -> "Aucune mise à jour publiée sur GitHub."
+                        }
+                        if (result.isFailure || availableUpdate == null) updateMessage = updateStatusText
+                        checkingUpdate = false
                     }
                 }, updateStatus = when {
-                    checkingUpdate -> "Recherche de mise à jour…"
-                    availableUpdate != null -> "Version ${availableUpdate!!.versionName} disponible."
-                    else -> null
+                    checkingUpdate -> "Recherche de mise à jour sur GitHub…"
+                    else -> updateStatusText
                 }, playerSettings = playerSettings, onPlayerSettingsChanged = { updated ->
                     playerSettingsStore.save(updated)
                     playerSettings = updated

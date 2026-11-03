@@ -24,34 +24,32 @@ internal data class UpdateInfo(
 
 internal object UpdateManager {
     private const val CURRENT_VERSION_CODE = BuildConfig.VERSION_CODE
-    private const val API = "https://api.github.com/repos/9BillyTheDev2/HOME-IPTV/releases?per_page=20"
+    private const val API = "https://api.github.com/repos/9BillyTheDev2/HOME-IPTV/releases?per_page=100"
     private const val RELEASE_ASSET_PREFIX = "https://github.com/9BillyTheDev2/HOME-IPTV/releases/download/"
     private const val MAX_APK_BYTES = 120L * 1024L * 1024L
 
     suspend fun findUpdate(): UpdateInfo? = withContext(Dispatchers.IO) {
         val releases = JSONArray(String(readUrl(API), Charsets.UTF_8))
+        val candidates = mutableListOf<UpdateInfo>()
         for (index in 0 until releases.length()) {
             val release = releases.optJSONObject(index) ?: continue
             if (release.optBoolean("draft", true)) continue
             val assets = release.optJSONArray("assets") ?: continue
-            val descriptor = (0 until assets.length())
-                .mapNotNull { assets.optJSONObject(it) }
-                .firstOrNull { it.optString("name") == "home-iptv-update.json" } ?: continue
+            val assetList = (0 until assets.length()).mapNotNull { assets.optJSONObject(it) }
+            val descriptor = assetList.firstOrNull { it.optString("name") == "home-iptv-update.json" } ?: continue
             val descriptorUrl = descriptor.optString("browser_download_url")
             if (!descriptorUrl.startsWith(RELEASE_ASSET_PREFIX)) continue
             val metadata = JSONObject(String(readUrl(descriptorUrl), Charsets.UTF_8))
             val code = metadata.optInt("versionCode", 0)
-            if (code <= CURRENT_VERSION_CODE) return@withContext null
+            if (code <= CURRENT_VERSION_CODE) continue
             val apkName = metadata.optString("apkFileName")
-            val apk = (0 until assets.length())
-                .mapNotNull { assets.optJSONObject(it) }
-                .firstOrNull { it.optString("name") == apkName } ?: continue
+            val apk = assetList.firstOrNull { it.optString("name") == apkName } ?: continue
             val apkUrl = apk.optString("browser_download_url")
             val checksum = metadata.optString("sha256").lowercase()
             if (!apkUrl.startsWith(RELEASE_ASSET_PREFIX) || !checksum.matches(Regex("[0-9a-f]{64}"))) continue
-            return@withContext UpdateInfo(code, metadata.optString("versionName"), apkUrl, checksum)
+            candidates += UpdateInfo(code, metadata.optString("versionName").ifBlank { "code " + code }, apkUrl, checksum)
         }
-        null
+        candidates.maxByOrNull { it.versionCode }
     }
 
     suspend fun downloadAndOpenInstaller(activity: Activity, update: UpdateInfo): String? =
@@ -135,6 +133,9 @@ internal object UpdateManager {
             connectTimeout = 12000
             readTimeout = 20000
             instanceFollowRedirects = true
+            useCaches = false
+            requestMethod = "GET"
+            setRequestProperty("Cache-Control", "no-cache")
             setRequestProperty("Accept", "application/vnd.github+json")
             setRequestProperty("User-Agent", "HOME-IPTV-Android")
         }
