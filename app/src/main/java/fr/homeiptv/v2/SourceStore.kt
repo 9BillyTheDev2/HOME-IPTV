@@ -106,7 +106,7 @@ class SourceStore(context: Context) {
     /** Updates the resume marker while playback is active, without adding a history event. */
     fun savePlaybackProgress(item: RecentPlayback) {
         val entries = recents().filterNot {
-            it.kind == item.kind && it.title == item.title && it.sourceKey == item.sourceKey
+            sameContent(it, item)
         }.toMutableList()
         entries.add(0, item)
         val arr = JSONArray()
@@ -118,9 +118,7 @@ class SourceStore(context: Context) {
         prefs.edit().putString("recent_playback", encrypt(arr.toString())).apply()
         // Keep the matching history row in sync so the History screen can show
         // only items with a real resume position instead of every launch.
-        val historyEntries = history().filterNot {
-            it.kind == item.kind && it.title == item.title && it.sourceKey == item.sourceKey && it.url == item.url
-        }.toMutableList()
+        val historyEntries = history().filterNot { sameContent(it, item) }.toMutableList()
         historyEntries.add(0, item)
         val historyArray = JSONArray()
         historyEntries.take(100).forEach { entry ->
@@ -135,7 +133,7 @@ class SourceStore(context: Context) {
         val encrypted = prefs.getString("watch_history", null).orEmpty()
         // Preserve the three existing "last watched" entries when users install
         // this release for the first time and the longer history key is absent.
-        if (encrypted.isBlank()) return@runCatching recents()
+        if (encrypted.isBlank()) return@runCatching recents().distinctBy(::historyIdentity)
         val arr = JSONArray(decrypt(encrypted))
         (0 until arr.length()).mapNotNull { i ->
             val o = arr.optJSONObject(i) ?: return@mapNotNull null
@@ -145,23 +143,45 @@ class SourceStore(context: Context) {
             if (kind.isBlank() || title.isBlank() || url.isBlank()) return@mapNotNull null
             RecentPlayback(kind, title, o.optString("subtitle"), o.optString("image").ifBlank { null }, url,
                 o.optLong("positionMs"), o.optString("category"), o.optString("sourceKey"), o.optLong("watchedAt", 0L))
-        }
+        }.distinctBy(::historyIdentity)
     }.getOrDefault(emptyList())
 
+    /** Removes older episodes for a series when a new episode starts. */
+    fun markPlaybackStarted(item: RecentPlayback) {
+        if (item.kind != "series") return
+        val entries = history().filterNot { sameContent(it, item) }.toMutableList()
+        entries.add(0, item.copy(positionMs = 0L))
+        writeHistory(entries)
+    }
+
+    fun removeHistoryItem(item: RecentPlayback) {
+        val entries = history().filterNot { sameContent(it, item) }
+        writeHistory(entries)
+    }
+
     private fun saveHistory(item: RecentPlayback) {
-        val entries = history().filterNot {
-            it.kind == item.kind && it.title == item.title && it.subtitle == item.subtitle &&
-                it.sourceKey == item.sourceKey && System.currentTimeMillis() - it.watchedAt < 5 * 60_000L
-        }.toMutableList()
+        val entries = history().filterNot { sameContent(it, item) }.toMutableList()
         entries.add(0, item)
+        writeHistory(entries)
+    }
+
+    private fun writeHistory(entries: List<RecentPlayback>) {
         val arr = JSONArray()
-        entries.take(100).forEach { entry ->
+        entries.distinctBy(::historyIdentity).take(100).forEach { entry ->
             arr.put(JSONObject().put("kind", entry.kind).put("title", entry.title).put("subtitle", entry.subtitle)
                 .put("image", entry.image).put("url", entry.url).put("positionMs", entry.positionMs)
                 .put("category", entry.category).put("sourceKey", entry.sourceKey).put("watchedAt", entry.watchedAt))
         }
         prefs.edit().putString("watch_history", encrypt(arr.toString())).apply()
     }
+
+    private fun sameContent(a: RecentPlayback, b: RecentPlayback): Boolean =
+        a.kind == b.kind && normalizedTitle(a.title) == normalizedTitle(b.title) && a.sourceKey == b.sourceKey
+
+    private fun historyIdentity(item: RecentPlayback): String =
+        "${item.kind}|${normalizedTitle(item.title)}|${item.sourceKey}"
+
+    private fun normalizedTitle(value: String): String = value.trim().lowercase().replace(Regex("\\s+"), " ")
 
     fun favorites(): List<FavoriteContent> = runCatching {
         val encrypted = prefs.getString("favorites", null).orEmpty()

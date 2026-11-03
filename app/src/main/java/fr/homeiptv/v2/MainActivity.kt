@@ -325,6 +325,10 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                     emptyMessage = "Aucune lecture en cours. Les films et séries apparaîtront ici après quelques instants de lecture.",
                     onPlay = { entry -> activity.play(entry.url, entry.kind, entry.title, entry.subtitle, entry.image,
                         entry.category, if (entry.kind == "live") 0L else entry.positionMs, entry.sourceKey) },
+                    onRemove = { entry ->
+                        store.removeHistoryItem(entry)
+                        watchHistory = store.history()
+                    },
                     onOpenSeries = { }
                 )
                 else -> CatalogScreen(

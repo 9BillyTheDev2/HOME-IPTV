@@ -97,6 +97,7 @@ class PlaybackActivity : Activity() {
         )
         var fallbackTried = false
         var resumePositionApplied = false
+        var seriesHistoryStartRecorded = false
         val resumePosition = intent.getLongExtra(EXTRA_POSITION, 0L).coerceAtLeast(0L)
         val fallbackUrl = intent.getStringExtra(EXTRA_FALLBACK_URL)
         player = ExoPlayer.Builder(this, renderersFactory).setMediaSourceFactory(mediaSourceFactory).build().also { exo ->
@@ -115,6 +116,10 @@ class PlaybackActivity : Activity() {
                     if (!resumePositionApplied && playbackState == Player.STATE_READY && resumePosition > 0L && kind != "live") {
                         exo.seekTo(resumePosition)
                         resumePositionApplied = true
+                    }
+                    if (!seriesHistoryStartRecorded && playbackState == Player.STATE_READY && kind == "series") {
+                        recent?.let { runCatching { SourceStore(this@PlaybackActivity).markPlaybackStarted(it) } }
+                        seriesHistoryStartRecorded = true
                     }
                 }
 
