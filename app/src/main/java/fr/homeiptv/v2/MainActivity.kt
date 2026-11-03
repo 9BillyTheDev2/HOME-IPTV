@@ -1019,10 +1019,6 @@ private fun FilmDetailScreen(
     val plot = details?.plot ?: item?.plot
     val compact = LocalConfiguration.current.screenWidthDp < 600
     Box(Modifier.fillMaxSize()) {
-        details?.backdrop?.let { backdrop ->
-            NetworkArtwork(backdrop, Modifier.fillMaxSize(), landscape = true)
-            Box(Modifier.fillMaxSize().background(Color(0xCC12110F)))
-        }
         Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("← Films") }
@@ -1043,14 +1039,7 @@ private fun FilmDetailScreen(
                     }
                 }
                 details?.cast?.takeIf(String::isNotBlank)?.let { DetailLine("Avec", it) }
-                Column(Modifier.weight(1f).fillMaxWidth().padding(top = 8.dp).verticalScroll(rememberScrollState())) {
-                    if (!plot.isNullOrBlank()) Text(
-                        plot, color = Cream.copy(alpha = .94f), fontSize = 14.sp, lineHeight = 20.sp,
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                            .background(Panel.copy(alpha = .78f)).padding(12.dp)
-                    )
-                    else if (!loading) Text("Aucun synopsis fourni par cette source.", color = Muted, fontSize = 13.sp)
-                }
+                SynopsisPanel(plot, compact = true, loading = loading, modifier = Modifier.padding(top = 8.dp))
             }
             Button(
                 onClick = { item?.let(onPlayXtream); m3uItem?.let(onPlayM3u) },
@@ -1068,8 +1057,7 @@ private fun FilmDetailScreen(
                     details?.rating?.takeIf(String::isNotBlank)?.let { Text("★  $it", color = Cyan, fontSize = 13.sp, modifier = Modifier.padding(top = 5.dp)) }
                     details?.director?.takeIf(String::isNotBlank)?.let { DetailLine("Réalisation", it) }
                     details?.cast?.takeIf(String::isNotBlank)?.let { DetailLine("Avec", it) }
-                    if (!plot.isNullOrBlank()) Text(plot, color = Cream.copy(alpha = .88f), fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 12.dp))
-                    else if (!loading) Text("Aucun synopsis fourni par cette source.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
+                    SynopsisPanel(plot, compact = false, loading = loading, modifier = Modifier.padding(top = 12.dp))
                     Button(
                         onClick = { item?.let(onPlayXtream); m3uItem?.let(onPlayM3u) },
                         modifier = Modifier.padding(top = 16.dp),
@@ -1095,10 +1083,6 @@ private fun SeriesDetailScreen(
     val media = details?.media
     val compact = LocalConfiguration.current.screenWidthDp < 600
     Box(Modifier.fillMaxSize()) {
-        media?.backdrop?.let { backdrop ->
-            NetworkArtwork(backdrop, Modifier.fillMaxSize(), landscape = true)
-            Box(Modifier.fillMaxSize().background(Color(0xD912110F)))
-        }
         Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("← Séries") }
@@ -1120,13 +1104,7 @@ private fun SeriesDetailScreen(
                     }
                 }
                 val compactPlot = media?.plot ?: item.plot
-                if (!compactPlot.isNullOrBlank()) {
-                    Column(Modifier.fillMaxWidth().heightIn(max = 48.dp).padding(top = 4.dp)
-                        .clip(RoundedCornerShape(8.dp)).background(Panel.copy(alpha = .76f))
-                        .verticalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 5.dp)) {
-                        Text(compactPlot, color = Cream.copy(alpha = .9f), fontSize = 11.sp, lineHeight = 15.sp)
-                    }
-                }
+                SynopsisPanel(compactPlot, compact = true, loading = loading, modifier = Modifier.padding(top = 5.dp))
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     details?.seasons.orEmpty().forEach { season ->
                         TextButton(
@@ -1143,11 +1121,13 @@ private fun SeriesDetailScreen(
                 ) {
                     items(episodes, key = { "${selectedSeason}-${it.item.id}" }) { episode ->
                         Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(Panel).clickable { onPlayEpisode(episode) }.focusable().padding(6.dp),
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(Panel)
+                                .border(1.dp, Color(0xFF3D352D), RoundedCornerShape(9.dp))
+                                .clickable { onPlayEpisode(episode) }.focusable().padding(6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            NetworkArtwork(episode.thumbnail, Modifier.width(82.dp).height(50.dp), landscape = true)
+                            NetworkArtwork(episode.thumbnail, Modifier.width(90.dp).height(54.dp), landscape = true)
                             Column(Modifier.weight(1f)) {
                                 Text("S${selectedSeason ?: "?"}E${episode.number} · ${episode.item.name}", color = Cream, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 2)
                                 val sub = listOfNotNull(episode.duration, episode.item.plot).joinToString(" · ")
@@ -1170,7 +1150,7 @@ private fun SeriesDetailScreen(
                 media?.director?.takeIf(String::isNotBlank)?.let { DetailLine("Réalisation", it) }
                 media?.cast?.takeIf(String::isNotBlank)?.let { DetailLine("Avec", it) }
                 val plot = media?.plot ?: item.plot
-                if (!plot.isNullOrBlank()) Text(plot, color = Cream.copy(alpha = .86f), fontSize = 13.sp, maxLines = 3, modifier = Modifier.padding(top = 7.dp))
+                if (!plot.isNullOrBlank()) SynopsisPanel(plot, compact = false, loading = loading, modifier = Modifier.padding(top = 7.dp))
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     details?.seasons.orEmpty().forEach { season ->
                         TextButton(
@@ -1187,7 +1167,9 @@ private fun SeriesDetailScreen(
                 ) {
                     items(episodes, key = { "${selectedSeason}-${it.item.id}" }) { episode ->
                         Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(Panel).clickable { onPlayEpisode(episode) }.focusable().padding(6.dp),
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(Panel)
+                                .border(1.dp, Color(0xFF3D352D), RoundedCornerShape(9.dp))
+                                .clickable { onPlayEpisode(episode) }.focusable().padding(6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
@@ -1205,6 +1187,37 @@ private fun SeriesDetailScreen(
         }
         }
     }
+    }
+}
+
+@Composable
+private fun SynopsisPanel(
+    synopsis: String?,
+    compact: Boolean,
+    loading: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(Panel)
+            .border(1.dp, Color(0xFF4A4036), RoundedCornerShape(10.dp))
+            .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 8.dp else 10.dp)
+    ) {
+        Text("Synopsis", color = Cyan, fontSize = if (compact) 10.sp else 12.sp, fontWeight = FontWeight.SemiBold)
+        if (!synopsis.isNullOrBlank()) {
+            Text(
+                synopsis,
+                color = Cream.copy(alpha = .92f),
+                fontSize = if (compact) 12.sp else 14.sp,
+                lineHeight = if (compact) 17.sp else 20.sp,
+                modifier = Modifier.fillMaxWidth()
+                    .then(if (compact) Modifier.heightIn(max = 150.dp).verticalScroll(rememberScrollState()) else Modifier)
+                    .padding(top = 4.dp)
+            )
+        } else if (!loading) {
+            Text("Aucun synopsis fourni par cette source.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+        }
     }
 }
 
@@ -1454,7 +1467,9 @@ private fun CatalogGridCard(
     onToggleFavorite: (() -> Unit)? = null,
     onClick: () -> Unit
 ) {
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Panel).clickable(onClick = onClick).focusable().padding(8.dp)) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Panel)
+        .border(1.dp, Color(0xFF302A24), RoundedCornerShape(12.dp))
+        .clickable(onClick = onClick).focusable().padding(8.dp)) {
         Box(Modifier.fillMaxWidth().height(if (landscape) 82.dp else 146.dp).clip(RoundedCornerShape(9.dp))) {
             NetworkArtwork(image, Modifier.fillMaxSize(), landscape)
             if (variantCount > 1) {
@@ -1603,4 +1618,3 @@ private fun CatalogRow(title: String, subtitle: String, logo: String?, onClick: 
         Column(Modifier.weight(1f)) { Text(title, color = Cream, fontWeight = FontWeight.Medium); if (subtitle.isNotBlank()) Text(subtitle, color = Muted, fontSize = 11.sp) }
         Text(if (logo.isNullOrBlank()) "▶" else "▶", color = Rust, fontSize = 18.sp)
     }
-}
