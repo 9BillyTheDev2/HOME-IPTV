@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -125,6 +126,7 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
     var recentContent by remember { mutableStateOf(store.recents()) }
     var favoriteContent by remember { mutableStateOf(store.favorites()) }
     var watchHistory by remember { mutableStateOf(store.history()) }
+    val inProgressHistory = remember(watchHistory) { watchHistory.filter { it.kind != "live" && it.positionMs > 0L } }
     var pendingFavoriteSeries by remember { mutableStateOf<FavoriteContent?>(null) }
     var searchResults by remember { mutableStateOf<List<XtreamItem>>(emptyList()) }
     var searchLoading by remember { mutableStateOf(false) }
@@ -259,7 +261,7 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                     recentContent,
                     active == null,
                     favoriteCount = favoriteContent.size,
-                    historyCount = watchHistory.size,
+                    historyCount = inProgressHistory.size,
                     onOpenFavorites = { section = "Favoris" },
                     onOpenHistory = { section = "Historique" },
                     onResume = { recent ->
@@ -271,6 +273,11 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                     title = "Mes favoris",
                     subtitle = "Conservés sur cet appareil et retrouvés après les mises à jour.",
                     entries = favoriteContent.map { RecentPlayback(it.kind, it.title, it.subtitle, it.image, it.url, 0L, it.category, it.sourceKey) },
+                    favoriteCounts = mapOf(
+                        "live" to favoriteContent.count { it.kind == "live" },
+                        "vod" to favoriteContent.count { it.kind == "vod" },
+                        "series" to favoriteContent.count { it.kind == "series" }
+                    ),
                     emptyMessage = "Aucun favori pour le moment. Ajoute un cœur sur une chaîne, un film ou une série.",
                     onPlay = { entry -> activity.play(entry.url, entry.kind, entry.title, entry.subtitle, entry.image, entry.category, 0L, entry.sourceKey) },
                     onRemove = { entry ->
@@ -295,9 +302,9 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                 )
                 "Historique" -> SavedLibraryScreen(
                     title = "Historique",
-                    subtitle = "Tes derniers contenus regardés.",
-                    entries = watchHistory,
-                    emptyMessage = "L’historique apparaîtra après ta première lecture.",
+                    subtitle = "Films et séries dont la lecture peut être reprise.",
+                    entries = inProgressHistory,
+                    emptyMessage = "Aucune lecture en cours. Les films et séries apparaîtront ici après quelques instants de lecture.",
                     onPlay = { entry -> activity.play(entry.url, entry.kind, entry.title, entry.subtitle, entry.image,
                         entry.category, if (entry.kind == "live") 0L else entry.positionMs, entry.sourceKey) },
                     onOpenSeries = { }
@@ -427,7 +434,7 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                         val series = selectedSeries
                         if (p != null && series != null) activity.play(
                             XtreamClient(p.endpoint, p.user, p.password).streamUrl("series", episode.item),
-                            "series", series.name, episode.item.name, episode.thumbnail ?: series.logo,
+                            "series", series.name, "S${selectedSeason ?: "?"}E${episode.number} · ${episode.item.name}", episode.thumbnail ?: series.logo,
                             xtreamCategories.firstOrNull { series.categoryId in it.ids }?.name.orEmpty(),
                             sourceKey = sourceStorageKey(p)
                         )
@@ -1005,6 +1012,20 @@ private fun CatalogScreen(
 
 
 @Composable
+private fun BackToCategoriesButton(label: String, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.padding(start = 12.dp, top = 6.dp, bottom = 4.dp),
+        shape = RoundedCornerShape(9.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Rust),
+        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Rust),
+        contentPadding = PaddingValues(horizontal = 15.dp, vertical = 8.dp)
+    ) {
+        Text("←  $label", fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
 private fun FilmDetailScreen(
     item: XtreamItem?,
     details: XtreamMediaDetails?,
@@ -1021,7 +1042,7 @@ private fun FilmDetailScreen(
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("← Films") }
+            BackToCategoriesButton("Films", onBack)
             Spacer(Modifier.weight(1f))
         }
         if (loading && details == null && item != null) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Rust)
@@ -1085,7 +1106,7 @@ private fun SeriesDetailScreen(
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("← Séries") }
+            BackToCategoriesButton("Séries", onBack)
             Spacer(Modifier.weight(1f))
         }
         if (loading && details == null) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Rust)
@@ -1365,30 +1386,47 @@ private fun HomeDashboard(
 ) {
     val compact = LocalConfiguration.current.screenWidthDp < 600
     val recentCardWidth = if (compact) minOf(278.dp, (LocalConfiguration.current.screenWidthDp - 40).dp) else 220.dp
+    val resumable = recent.filter { it.kind != "live" && it.positionMs > 0L }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = if (compact) 14.dp else 20.dp, vertical = 12.dp)) {
-        if (compact) {
-            Text("À regarder", color = Cream, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = onOpenFavorites, modifier = Modifier.weight(1f)) { Text("♥ Favoris · $favoriteCount", color = Cream, maxLines = 1) }
-                TextButton(onClick = onOpenHistory, modifier = Modifier.weight(1f)) { Text("Historique · $historyCount", color = Cream, maxLines = 1) }
-            }
-        } else {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("À regarder", color = Cream, fontSize = 23.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                TextButton(onClick = onOpenFavorites) { Text("♥  Favoris  $favoriteCount", color = Cream) }
-                TextButton(onClick = onOpenHistory) { Text("Historique  $historyCount", color = Cream) }
-            }
+        Text("À regarder", color = Cream, fontSize = if (compact) 21.sp else 23.sp, fontWeight = FontWeight.Bold)
+        Column(
+            Modifier.fillMaxWidth().padding(top = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            DashboardActionButton("♥", "Favoris", favoriteCount, onOpenFavorites)
+            DashboardActionButton("◷", "Historique · Lecture en cours", historyCount, onOpenHistory)
         }
         if (noSource) {
             Text("Ajoute une source dans ⚙ Paramètres pour commencer.", color = Muted, modifier = Modifier.padding(top = 8.dp))
-        } else if (recent.isEmpty()) {
-            Text("Tes dernières chaînes, films et séries apparaîtront ici.", color = Muted, modifier = Modifier.padding(top = 8.dp))
+        } else if (resumable.isEmpty()) {
+            Text("Les films et séries en cours apparaîtront ici après quelques instants de lecture.", color = Muted, modifier = Modifier.padding(top = 12.dp))
         } else {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                recent.sortedBy { listOf("live", "vod", "series").indexOf(it.kind) }.forEach { item ->
+            Text("Reprendre la lecture", color = Cream, fontSize = if (compact) 18.sp else 20.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 22.dp, bottom = 10.dp))
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                resumable.sortedBy { listOf("vod", "series").indexOf(it.kind) }.forEach { item ->
                 RecentCard(item, width = recentCardWidth, onClick = { onResume(item) })
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun DashboardActionButton(icon: String, label: String, count: Int, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF51463C)),
+        colors = ButtonDefaults.outlinedButtonColors(containerColor = Panel, contentColor = Cream),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(icon, color = Cyan, fontSize = 21.sp, modifier = Modifier.padding(end = 12.dp))
+            Text(label, color = Cream, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(count.toString(), color = Cyan, fontWeight = FontWeight.Bold)
+            Text("  ›", color = Muted, fontSize = 20.sp)
         }
     }
 }
@@ -1398,24 +1436,44 @@ private fun SavedLibraryScreen(
     title: String,
     subtitle: String,
     entries: List<RecentPlayback>,
+    favoriteCounts: Map<String, Int> = emptyMap(),
     emptyMessage: String,
     onPlay: (RecentPlayback) -> Unit,
     onRemove: ((RecentPlayback) -> Unit)? = null,
     onOpenSeries: (RecentPlayback) -> Unit
 ) {
     val compact = LocalConfiguration.current.screenWidthDp < 600
+    var selectedFavoriteKind by remember(title, entries) { mutableStateOf(entries.firstOrNull()?.kind ?: "live") }
+    val showingFavorites = title == "Mes favoris"
+    val visibleEntries = if (showingFavorites) entries.filter { it.kind == selectedFavoriteKind } else entries
     Column(Modifier.fillMaxSize().padding(horizontal = if (compact) 14.dp else 22.dp, vertical = 12.dp)) {
         Text(title, color = Cream, fontSize = if (compact) 21.sp else 25.sp, fontWeight = FontWeight.Bold)
         Text(subtitle, color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 12.dp))
-        if (entries.isEmpty()) {
-            Text(emptyMessage, color = Muted, modifier = Modifier.padding(top = 12.dp))
+        if (showingFavorites) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("live" to "TV", "vod" to "Films", "series" to "Séries").forEach { (kind, label) ->
+                    FilterChip(
+                        selected = selectedFavoriteKind == kind,
+                        onClick = { selectedFavoriteKind = kind },
+                        label = { Text("$label · ${favoriteCounts[kind] ?: entries.count { it.kind == kind }}") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Rust, selectedLabelColor = Cream,
+                            containerColor = Panel, labelColor = Muted
+                        )
+                    )
+                }
+            }
+        }
+        if (visibleEntries.isEmpty()) {
+            Text(if (showingFavorites && entries.isNotEmpty()) "Aucun favori dans cette catégorie." else emptyMessage,
+                color = Muted, modifier = Modifier.padding(top = 12.dp))
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(if (compact) 140.dp else 160.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(entries, key = { "${it.kind}|${it.title}|${it.subtitle}|${it.url}" }) { entry ->
+                itemsIndexed(visibleEntries, key = { index, entry -> "${entry.kind}|${entry.title}|${entry.subtitle}|${entry.url}|$index" }) { _, entry ->
                     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Panel).padding(8.dp)) {
                         CatalogGridCard(entry.title, entry.subtitle, entry.image, landscape = entry.kind == "live") {
                             if (entry.kind == "series" && entry.url.startsWith("series:")) onOpenSeries(entry) else onPlay(entry)
@@ -1430,7 +1488,19 @@ private fun SavedLibraryScreen(
                             }
                         }
                         if (entry.kind != "live" && entry.positionMs > 0L) {
-                            Text("Reprendre à ${entry.positionMs / 3_600_000L}h ${(entry.positionMs / 60_000L) % 60}min", color = Muted, fontSize = 10.sp)
+                            val episode = Regex("(?i)S(\\d+)E(\\d+)").find(entry.subtitle)
+                            val episodeLabel = episode?.let { "Saison ${it.groupValues[1]} · Épisode ${it.groupValues[2]}" }
+                            Text(
+                                episodeLabel ?: "Position ${entry.positionMs / 3_600_000L}h ${(entry.positionMs / 60_000L) % 60}min",
+                                color = Muted, fontSize = 10.sp
+                            )
+                            if (episode != null) {
+                                val episodeTitle = entry.subtitle.substringAfter("·", "").trim()
+                                if (episodeTitle.isNotBlank()) Text(episodeTitle, color = Muted, fontSize = 10.sp, maxLines = 1)
+                            }
+                            TextButton(onClick = { onPlay(entry) }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)) {
+                                Text("▶  Reprendre", color = Rust, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            }
                         }
                     }
                 }

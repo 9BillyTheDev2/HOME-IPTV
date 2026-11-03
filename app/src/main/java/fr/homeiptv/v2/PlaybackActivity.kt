@@ -174,7 +174,8 @@ class PlaybackActivity : Activity() {
         val currentPlayer = player
         val record = recent
         if (currentPlayer != null && record != null) {
-            val position = if (record.kind == "live") 0L else currentPlayer.currentPosition.coerceAtLeast(0L)
+            val finished = record.kind != "live" && currentPlayer.playbackState == Player.STATE_ENDED
+            val position = if (record.kind == "live" || finished) 0L else currentPlayer.currentPosition.coerceAtLeast(0L)
             runCatching { SourceStore(this).saveRecent(record.copy(positionMs = position)) }
         }
         player?.release()

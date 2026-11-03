@@ -116,6 +116,19 @@ class SourceStore(context: Context) {
                 .put("sourceKey", recent.sourceKey).put("watchedAt", recent.watchedAt))
         }
         prefs.edit().putString("recent_playback", encrypt(arr.toString())).apply()
+        // Keep the matching history row in sync so the History screen can show
+        // only items with a real resume position instead of every launch.
+        val historyEntries = history().filterNot {
+            it.kind == item.kind && it.title == item.title && it.sourceKey == item.sourceKey && it.url == item.url
+        }.toMutableList()
+        historyEntries.add(0, item)
+        val historyArray = JSONArray()
+        historyEntries.take(100).forEach { entry ->
+            historyArray.put(JSONObject().put("kind", entry.kind).put("title", entry.title).put("subtitle", entry.subtitle)
+                .put("image", entry.image).put("url", entry.url).put("positionMs", entry.positionMs)
+                .put("category", entry.category).put("sourceKey", entry.sourceKey).put("watchedAt", entry.watchedAt))
+        }
+        prefs.edit().putString("watch_history", encrypt(historyArray.toString())).apply()
     }
 
     fun history(): List<RecentPlayback> = runCatching {
