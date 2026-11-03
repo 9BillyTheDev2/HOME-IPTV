@@ -68,7 +68,7 @@ class PlaybackActivity : Activity() {
         val decoderPreference = runCatching {
             DecoderPreference.valueOf(intent.getStringExtra(EXTRA_DECODER).orEmpty())
         }.getOrDefault(DecoderPreference.HARDWARE)
-        val renderersFactory = DefaultRenderersFactory(this).setMediaCodecSelector(
+        val renderersFactory = DefaultRenderersFactory(this).setEnableDecoderFallback(true).setMediaCodecSelector(
             preferredDecoderSelector(decoderPreference)
         )
         player = ExoPlayer.Builder(this, renderersFactory).setMediaSourceFactory(mediaSourceFactory).build().also { exo ->

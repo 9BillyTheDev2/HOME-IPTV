@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
@@ -442,63 +443,162 @@ private fun PlayerSettingRow(title: String, selected: Boolean, onClick: () -> Un
 }
 
 @Composable
-private fun SettingsScreen(profiles: List<SourceProfile>, active: SourceProfile?, onAdd: () -> Unit, onSelect: (SourceProfile) -> Unit, onDelete: (SourceProfile) -> Unit, onVpn: () -> Unit, onCheckUpdate: () -> Unit, updateStatus: String?, playerSettings: PlayerSettings, onPlayerSettingsChanged: (PlayerSettings) -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Text("Lecteur", color = Cream, fontSize = 25.sp, fontWeight = FontWeight.Bold)
-        Text("Lecteur intégré HOME IPTV (Media3)", color = Muted, modifier = Modifier.padding(top = 5.dp, bottom = 12.dp))
-        Text("Format des chaînes Xtream en direct", color = Cream, fontWeight = FontWeight.SemiBold)
-        PlayerSettingRow(
-            title = "MPEG-TS (.ts)",
-            selected = playerSettings.liveStreamFormat == LiveStreamFormat.MPEG_TS,
-            onClick = { onPlayerSettingsChanged(playerSettings.copy(liveStreamFormat = LiveStreamFormat.MPEG_TS)) }
-        )
-        PlayerSettingRow(
-            title = "HLS (.m3u8)",
-            selected = playerSettings.liveStreamFormat == LiveStreamFormat.HLS,
-            onClick = { onPlayerSettingsChanged(playerSettings.copy(liveStreamFormat = LiveStreamFormat.HLS)) }
-        )
-        Text(
-            "Ce choix concerne les chaînes Xtream. Les liens M3U gardent leur format d’origine.",
-            color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp, bottom = 15.dp)
-        )
-        Text("Décodeur vidéo", color = Cream, fontWeight = FontWeight.SemiBold)
-        PlayerSettingRow(
-            title = "Matériel prioritaire",
-            selected = playerSettings.decoderPreference == DecoderPreference.HARDWARE,
-            onClick = { onPlayerSettingsChanged(playerSettings.copy(decoderPreference = DecoderPreference.HARDWARE)) }
-        )
-        PlayerSettingRow(
-            title = "Logiciel prioritaire",
-            selected = playerSettings.decoderPreference == DecoderPreference.SOFTWARE,
-            onClick = { onPlayerSettingsChanged(playerSettings.copy(decoderPreference = DecoderPreference.SOFTWARE)) }
-        )
-        Text(
-            "Le lecteur privilégie ce type de décodeur s’il est disponible; sinon il essaie un décodeur compatible.",
-            color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp, bottom = 15.dp)
-        )
-        Text("Audio et rendu vidéo", color = Cream, fontWeight = FontWeight.SemiBold)
-        Text(
-            "OpenSL ES et OpenGL ne sont pas des interrupteurs pris en charge par le lecteur Media3 intégré. HOME IPTV utilise les sorties audio et vidéo Android.",
-            color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 5.dp, bottom = 20.dp)
-        )
-        Text("Mes sources", color = Cream, fontSize = 25.sp, fontWeight = FontWeight.Bold)
-        Text("Les identifiants restent chiffrés sur cet appareil.", color = Muted, modifier = Modifier.padding(top = 5.dp, bottom = 15.dp))
-        profiles.forEach { profile ->
-            Row(Modifier.fillMaxWidth().padding(bottom = 9.dp).clip(RoundedCornerShape(12.dp)).background(Panel).padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) { Text(profile.name, color = Cream, fontWeight = FontWeight.SemiBold); Text(profile.kind, color = Muted, fontSize = 12.sp) }
-                Text(if (profile.id == active?.id) "ACTIF" else "CHOISIR", color = if (profile.id == active?.id) Cyan else Cream, modifier = Modifier.clickable { onSelect(profile) }.focusable().padding(8.dp))
-                Text("×", color = Muted, modifier = Modifier.clickable { onDelete(profile) }.focusable().padding(8.dp))
+private fun SettingsScreen(
+    profiles: List<SourceProfile>,
+    active: SourceProfile?,
+    onAdd: () -> Unit,
+    onSelect: (SourceProfile) -> Unit,
+    onDelete: (SourceProfile) -> Unit,
+    onVpn: () -> Unit,
+    onCheckUpdate: () -> Unit,
+    updateStatus: String?,
+    playerSettings: PlayerSettings,
+    onPlayerSettingsChanged: (PlayerSettings) -> Unit
+) {
+    val compact = LocalConfiguration.current.screenWidthDp < 600
+    Column(
+        Modifier.fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = if (compact) 14.dp else 26.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text("PARAMÈTRES", color = Cyan, fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
+        Text("Ton espace HOME IPTV", color = Cream, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        SettingsSection("Lecteur intégré", "Media3 · lecteur vidéo et audio HOME IPTV") {
+            Text("Format des chaînes Xtream en direct", color = Cream, fontWeight = FontWeight.SemiBold)
+            PlayerSettingRow(
+                title = "MPEG-TS",
+                description = "Flux direct au format .ts",
+                selected = playerSettings.liveStreamFormat == LiveStreamFormat.MPEG_TS,
+                onClick = { onPlayerSettingsChanged(playerSettings.copy(liveStreamFormat = LiveStreamFormat.MPEG_TS)) }
+            )
+            PlayerSettingRow(
+                title = "HLS",
+                description = "Playlist adaptative au format .m3u8",
+                selected = playerSettings.liveStreamFormat == LiveStreamFormat.HLS,
+                onClick = { onPlayerSettingsChanged(playerSettings.copy(liveStreamFormat = LiveStreamFormat.HLS)) }
+            )
+            Text(
+                "Ce réglage concerne Xtream. Les liens M3U conservent leur format d’origine.",
+                color = Muted, fontSize = 12.sp
+            )
+            HorizontalDivider(color = Color(0xFF4A4036))
+            Text("Décodeur vidéo prioritaire", color = Cream, fontWeight = FontWeight.SemiBold)
+            PlayerSettingRow(
+                title = "Matériel",
+                description = "Privilégie le décodeur vidéo du téléphone ou de la TV.",
+                selected = playerSettings.decoderPreference == DecoderPreference.HARDWARE,
+                onClick = { onPlayerSettingsChanged(playerSettings.copy(decoderPreference = DecoderPreference.HARDWARE)) }
+            )
+            PlayerSettingRow(
+                title = "Logiciel",
+                description = "Décode par le processeur; peut aider avec certains appareils ou flux.",
+                selected = playerSettings.decoderPreference == DecoderPreference.SOFTWARE,
+                onClick = { onPlayerSettingsChanged(playerSettings.copy(decoderPreference = DecoderPreference.SOFTWARE)) }
+            )
+            Text(
+                "Si le décodeur choisi échoue au démarrage, Media3 peut essayer un autre décodeur disponible.",
+                color = Muted, fontSize = 12.sp
+            )
+            HorizontalDivider(color = Color(0xFF4A4036))
+            Text("Audio et affichage", color = Cream, fontWeight = FontWeight.SemiBold)
+            Text(
+                "OpenSL ES et OpenGL sont gérés par les sorties Android du lecteur intégré; ils ne sont pas réglables séparément ici.",
+                color = Muted, fontSize = 12.sp
+            )
+        }
+        SettingsSection("Mes sources", "Les identifiants Xtream restent chiffrés sur cet appareil.") {
+            if (profiles.isEmpty()) {
+                Text("Aucune source ajoutée.", color = Muted)
+            } else profiles.forEach { profile ->
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF171411)).padding(horizontal = 12.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(profile.name, color = Cream, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                        Text(profile.kind, color = Muted, fontSize = 12.sp)
+                    }
+                    Text(
+                        if (profile.id == active?.id) "ACTIF" else "CHOISIR",
+                        color = if (profile.id == active?.id) Cyan else Cream,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { onSelect(profile) }.focusable().padding(8.dp)
+                    )
+                    Text(
+                        "×", color = Muted, fontSize = 20.sp,
+                        modifier = Modifier.clickable { onDelete(profile) }.focusable().padding(horizontal = 8.dp)
+                    )
+                }
             }
+            Button(
+                onClick = onAdd,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Rust, contentColor = Cream)
+            ) { Text("＋  Ajouter une source") }
         }
-        Button(onClick = onAdd) { Text("＋ Ajouter une source") }
-        OutlinedButton(onClick = onCheckUpdate, enabled = updateStatus != "Recherche de mise à jour…") {
-            Text("Rechercher une mise à jour")
+        SettingsSection("Mises à jour") {
+            Text("Vérifier les nouvelles versions du projet.", color = Muted, fontSize = 13.sp)
+            OutlinedButton(onClick = onCheckUpdate, enabled = updateStatus != "Recherche de mise à jour…", modifier = Modifier.fillMaxWidth()) {
+                Text("Rechercher une mise à jour")
+            }
+            updateStatus?.let { Text(it, color = Cyan, fontSize = 12.sp) }
         }
-        updateStatus?.let { Text(it, color = Cyan, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp)) }
-        Text("Confidentialité réseau", color = Cream, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 24.dp))
-        Text("HOME IPTV peut utiliser un VPN déjà configuré sur Android ou Fire TV. Configure-le dans les réglages système avant de lire tes flux.", color = Muted, modifier = Modifier.padding(top = 5.dp, bottom = 10.dp))
-        OutlinedButton(onClick = onVpn) { Text("Ouvrir les réglages VPN") }
-        Text("HOME IPTV ne fournit pas de chaînes. L’app lit les flux de ta source.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 18.dp))
+        SettingsSection("Confidentialité réseau") {
+            Text(
+                "HOME IPTV peut utiliser un VPN déjà configuré sur Android ou Fire TV. Configure-le dans les réglages système avant de lire tes flux.",
+                color = Muted, fontSize = 13.sp
+            )
+            OutlinedButton(onClick = onVpn, modifier = Modifier.fillMaxWidth()) { Text("Ouvrir les réglages VPN") }
+        }
+        Text(
+            "HOME IPTV ne fournit pas de chaînes. L’app lit les flux de tes sources.",
+            color = Muted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 18.dp)
+        )
+    }
+}
+
+@Composable
+private fun SettingsSection(
+    title: String,
+    subtitle: String? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+            .background(Panel)
+            .border(1.dp, Color(0xFF41372F), RoundedCornerShape(16.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Text(title, color = Cream, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+        subtitle?.let { Text(it, color = Muted, fontSize = 12.sp) }
+        content()
+    }
+}
+
+@Composable
+private fun PlayerSettingRow(title: String, description: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) Rust.copy(alpha = .16f) else Color(0xFF171411))
+            .border(1.dp, if (selected) Rust else Color(0xFF41372F), RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(
+            selected = selected,
+            onClick = onClick,
+            colors = RadioButtonDefaults.colors(selectedColor = Rust, unselectedColor = Muted)
+        )
+        Column(Modifier.weight(1f).padding(start = 6.dp)) {
+            Text(title, color = Cream, fontWeight = FontWeight.SemiBold)
+            Text(description, color = Muted, fontSize = 12.sp, lineHeight = 16.sp)
+        }
     }
 }
 
@@ -567,7 +667,9 @@ private fun CatalogScreen(
     onPlayEpisode: (XtreamEpisodeInfo) -> Unit
 ) {
     var searchText by remember(section) { mutableStateOf("") }
-    val categoryRailWidth = if (LocalConfiguration.current.screenWidthDp < 700) 148.dp else 220.dp
+    val screenWidth = LocalConfiguration.current.screenWidthDp
+    val compact = screenWidth < 600
+    val categoryRailWidth = if (screenWidth < 700) 148.dp else 220.dp
     var variantChoices by remember(section) { mutableStateOf<List<VariantChoice>?>(null) }
     val query = normalizeSearchText(searchText.trim())
     LaunchedEffect(query, sourceKind) {
@@ -621,46 +723,53 @@ private fun CatalogScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text(section.uppercase(), color = Cream, fontSize = 25.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+    Column(Modifier.fillMaxSize().padding(horizontal = if (compact) 12.dp else 20.dp, vertical = 12.dp)) {
+        if (compact) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(section, color = Cream, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                if (loading || searchLoading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            }
             OutlinedTextField(
                 value = searchText,
                 onValueChange = { searchText = it },
-                modifier = Modifier.widthIn(min = 220.dp, max = 360.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 singleLine = true,
-                label = { Text("Tout rechercher") },
+                label = { Text("Rechercher") },
                 placeholder = { Text("Chaîne, film ou série") },
                 trailingIcon = {
                     if (searchText.isNotEmpty()) TextButton(onClick = { searchText = "" }) { Text("×") }
                     else Text("⌕", color = Cyan, fontSize = 21.sp)
                 }
             )
-            if (loading || searchLoading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-        }
-        Spacer(Modifier.height(14.dp))
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Column(
-                Modifier.width(categoryRailWidth).fillMaxHeight().clip(RoundedCornerShape(14.dp)).background(Color(0xFF1B1713))
-                    .verticalScroll(rememberScrollState()).padding(12.dp)
-            ) {
-                Text("CATÉGORIES", color = Cyan, fontSize = 11.sp, letterSpacing = 1.5.sp, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp))
-                if (sourceKind == "M3U") {
-                    CategoryButton("Toutes", selectedGroup == null, query.isNotBlank()) { onSelectGroup("") }
-                    groups.forEach { group -> CategoryButton(group, selectedGroup == group && query.isBlank(), false) { onSelectGroup(group) } }
-                } else {
-                    categories.forEach { category -> CategoryButton(category.name, selectedGroup == category.name && query.isBlank(), false) { onSelectGroup(category.name) } }
-                }
-                if (groups.isEmpty() && categories.isEmpty()) Text("Aucune catégorie", color = Muted, modifier = Modifier.padding(8.dp))
+        } else {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(section.uppercase(), color = Cream, fontSize = 25.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                OutlinedTextField(
+                    value = searchText,
+                    onValueChange = { searchText = it },
+                    modifier = Modifier.widthIn(min = 220.dp, max = 360.dp),
+                    singleLine = true,
+                    label = { Text("Tout rechercher") },
+                    placeholder = { Text("Chaîne, film ou série") },
+                    trailingIcon = {
+                        if (searchText.isNotEmpty()) TextButton(onClick = { searchText = "" }) { Text("×") }
+                        else Text("⌕", color = Cyan, fontSize = 21.sp)
+                    }
+                )
+                if (loading || searchLoading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
             }
-            Column(Modifier.weight(1f).fillMaxHeight()) {
+        }
+        Spacer(Modifier.height(12.dp))
+        @Composable
+        fun CatalogContent(modifier: Modifier = Modifier) {
+            Column(modifier) {
                 if (seriesItem != null) {
                     SeriesDetailScreen(seriesItem, seriesDetails, selectedSeason, loading, onSelectSeason, onBackDetails, onPlayEpisode)
                 } else if (filmItem != null || m3uFilm != null) {
                     FilmDetailScreen(filmItem, filmDetails, m3uFilm, loading, onBackDetails, onPlayFilm, onPlayM3uFilm)
                 } else if (sourceKind == "M3U") {
                     if (filteredM3u.isEmpty() && !loading) Text(if (message.isNotBlank()) message else "Aucun contenu trouvé.", color = Muted, modifier = Modifier.padding(16.dp))
-                    LazyVerticalGrid(columns = GridCells.Adaptive(128.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LazyVerticalGrid(columns = GridCells.Adaptive(if (compact) 138.dp else 128.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(groupedM3u, key = { it.key }) { group ->
                             val entry = group.entries.first()
                             CatalogGridCard(entry.name, entry.group, entry.logo, landscape = section == "TV en direct", variantCount = group.entries.size) {
@@ -678,7 +787,7 @@ private fun CatalogScreen(
                         }
                         Text(text, color = Muted, modifier = Modifier.padding(16.dp))
                     } else {
-                        LazyVerticalGrid(columns = GridCells.Adaptive(128.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        LazyVerticalGrid(columns = GridCells.Adaptive(if (compact) 138.dp else 128.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             items(groupedXtream, key = { it.key }) { group ->
                                 val item = group.items.first()
                                 val subtitle = if (query.isNotBlank()) categoryName(item) else (item.year ?: categoryName(item))
@@ -689,6 +798,43 @@ private fun CatalogScreen(
                         }
                     }
                 }
+            }
+        }
+        if (compact) {
+            Column(Modifier.fillMaxSize()) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    Text("CATÉGORIES", color = Cyan, fontSize = 10.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Bold)
+                    if (sourceKind == "M3U") {
+                        CategoryChip("Toutes", selectedGroup == null, query.isNotBlank()) { onSelectGroup("") }
+                        groups.forEach { group -> CategoryChip(group, selectedGroup == group && query.isBlank(), false) { onSelectGroup(group) } }
+                    } else {
+                        categories.forEach { category -> CategoryChip(category.name, selectedGroup == category.name && query.isBlank(), false) { onSelectGroup(category.name) } }
+                    }
+                    if (groups.isEmpty() && categories.isEmpty()) Text("Aucune catégorie", color = Muted, fontSize = 12.sp)
+                }
+                Spacer(Modifier.height(10.dp))
+                CatalogContent(Modifier.weight(1f).fillMaxWidth())
+            }
+        } else {
+            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(
+                    Modifier.width(categoryRailWidth).fillMaxHeight().clip(RoundedCornerShape(14.dp)).background(Color(0xFF1B1713))
+                        .verticalScroll(rememberScrollState()).padding(12.dp)
+                ) {
+                    Text("CATÉGORIES", color = Cyan, fontSize = 11.sp, letterSpacing = 1.5.sp, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp))
+                    if (sourceKind == "M3U") {
+                        CategoryButton("Toutes", selectedGroup == null, query.isNotBlank()) { onSelectGroup("") }
+                        groups.forEach { group -> CategoryButton(group, selectedGroup == group && query.isBlank(), false) { onSelectGroup(group) } }
+                    } else {
+                        categories.forEach { category -> CategoryButton(category.name, selectedGroup == category.name && query.isBlank(), false) { onSelectGroup(category.name) } }
+                    }
+                    if (groups.isEmpty() && categories.isEmpty()) Text("Aucune catégorie", color = Muted, modifier = Modifier.padding(8.dp))
+                }
+                CatalogContent(Modifier.weight(1f).fillMaxHeight())
             }
         }
     }
@@ -730,28 +876,52 @@ private fun FilmDetailScreen(
     val title = details?.title ?: item?.name ?: m3uItem?.name.orEmpty()
     val poster = details?.poster ?: item?.logo ?: m3uItem?.logo
     val plot = details?.plot ?: item?.plot
+    val compact = LocalConfiguration.current.screenWidthDp < 600
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("← Films") }
-            Text(title, color = Cream, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(title, color = Cream, fontSize = if (compact) 16.sp else 19.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
         if (loading && details == null && item != null) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Rust)
-        Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-            NetworkArtwork(poster, Modifier.width(145.dp).fillMaxHeight(.72f), landscape = false)
-            Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(end = 12.dp)) {
-                Text(title, color = Cream, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                val metadata = listOfNotNull(details?.releaseDate ?: item?.year, details?.duration, details?.genre)
-                    .filter { it.isNotBlank() }.joinToString("  ·  ")
-                if (metadata.isNotBlank()) Text(metadata, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
-                details?.director?.takeIf(String::isNotBlank)?.let { DetailLine("Réalisation", it) }
+        if (compact) {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+                    NetworkArtwork(poster, Modifier.width(112.dp).height(164.dp), landscape = false)
+                    Column(Modifier.weight(1f)) {
+                        Text(title, color = Cream, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        val metadata = listOfNotNull(details?.releaseDate ?: item?.year, details?.duration, details?.genre)
+                            .filter { it.isNotBlank() }.joinToString("  ·  ")
+                        if (metadata.isNotBlank()) Text(metadata, color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 7.dp))
+                        details?.director?.takeIf(String::isNotBlank)?.let { DetailLine("Réalisation", it) }
+                    }
+                }
                 details?.cast?.takeIf(String::isNotBlank)?.let { DetailLine("Avec", it) }
                 if (!plot.isNullOrBlank()) Text(plot, color = Cream.copy(alpha = .88f), fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 12.dp))
                 else if (!loading) Text("Aucun synopsis fourni par cette source.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
                 Button(
                     onClick = { item?.let(onPlayXtream); m3uItem?.let(onPlayM3u) },
-                    modifier = Modifier.padding(top = 16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Rust, contentColor = Cream)
                 ) { Text("▶  Lire le film") }
+            }
+        } else {
+            Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                NetworkArtwork(poster, Modifier.width(145.dp).fillMaxHeight(.72f), landscape = false)
+                Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(end = 12.dp)) {
+                    Text(title, color = Cream, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    val metadata = listOfNotNull(details?.releaseDate ?: item?.year, details?.duration, details?.genre)
+                        .filter { it.isNotBlank() }.joinToString("  ·  ")
+                    if (metadata.isNotBlank()) Text(metadata, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
+                    details?.director?.takeIf(String::isNotBlank)?.let { DetailLine("Réalisation", it) }
+                    details?.cast?.takeIf(String::isNotBlank)?.let { DetailLine("Avec", it) }
+                    if (!plot.isNullOrBlank()) Text(plot, color = Cream.copy(alpha = .88f), fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 12.dp))
+                    else if (!loading) Text("Aucun synopsis fourni par cette source.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
+                    Button(
+                        onClick = { item?.let(onPlayXtream); m3uItem?.let(onPlayM3u) },
+                        modifier = Modifier.padding(top = 16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Rust, contentColor = Cream)
+                    ) { Text("▶  Lire le film") }
+                }
             }
         }
     }
@@ -768,6 +938,7 @@ private fun SeriesDetailScreen(
     onPlayEpisode: (XtreamEpisodeInfo) -> Unit
 ) {
     val media = details?.media
+    val compact = LocalConfiguration.current.screenWidthDp < 600
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("← Séries") }
@@ -775,7 +946,7 @@ private fun SeriesDetailScreen(
         }
         if (loading && details == null) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Rust)
         Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            NetworkArtwork(media?.poster ?: item.logo, Modifier.width(132.dp).height(185.dp), landscape = false)
+            NetworkArtwork(media?.poster ?: item.logo, Modifier.width(if (compact) 92.dp else 132.dp).height(if (compact) 130.dp else 185.dp), landscape = false)
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 Text(media?.title ?: item.name, color = Cream, fontSize = 23.sp, fontWeight = FontWeight.Bold, maxLines = 2)
                 val metadata = listOfNotNull(media?.releaseDate ?: item.year, media?.genre)
@@ -846,49 +1017,94 @@ private fun HeaderNavigation(
     onNavigate: (String) -> Unit,
     onSearch: () -> Unit
 ) {
-    Row(
-        Modifier.fillMaxWidth().background(Color(0xFF12100E)).padding(horizontal = 18.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Image(painterResource(R.drawable.home_iptv_icon), "HOME IPTV", Modifier.size(width = 76.dp, height = 52.dp), contentScale = ContentScale.Fit)
-        Box(Modifier.padding(horizontal = 12.dp).width(1.dp).height(30.dp).background(Color(0xFF615346)))
-        Row(
-            Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
+    val compact = LocalConfiguration.current.screenWidthDp < 600
+    if (compact) {
+        Column(
+            Modifier.fillMaxWidth().background(Color(0xFF12100E)).padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
-            listOf("Accueil", "TV en direct", "Films", "Séries").forEach { item ->
-                val selected = item == section
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Image(
+                    painterResource(R.drawable.home_iptv_icon),
+                    "HOME IPTV",
+                    Modifier.size(width = 44.dp, height = 36.dp),
+                    contentScale = ContentScale.Fit
+                )
+                Text("HOME IPTV", color = Cream, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
+                Spacer(Modifier.weight(1f))
                 Text(
-                    item.uppercase(),
-                    color = if (selected) Cream else Muted,
-                    fontSize = 12.sp,
-                    letterSpacing = .4.sp,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                    modifier = Modifier.clip(RoundedCornerShape(8.dp))
-                        .background(if (selected) Rust else Color.Transparent)
-                        .clickable { onNavigate(item) }.focusable()
-                        .padding(horizontal = 11.dp, vertical = 10.dp)
+                    "⚙",
+                    color = if (section == "Paramètres") Rust else Cream,
+                    fontSize = 22.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onNavigate("Paramètres") }
+                        .focusable().padding(horizontal = 10.dp, vertical = 4.dp)
                 )
             }
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                listOf("Accueil", "TV en direct", "Films", "Séries").forEach { item ->
+                    val selected = item == section
+                    Text(
+                        item,
+                        color = if (selected) Cream else Muted,
+                        fontSize = 13.sp,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1,
+                        modifier = Modifier.clip(RoundedCornerShape(9.dp))
+                            .background(if (selected) Rust else Color.Transparent)
+                            .clickable { onNavigate(item) }.focusable()
+                            .padding(horizontal = 13.dp, vertical = 9.dp)
+                    )
+                }
+            }
         }
-        if (section in listOf("TV en direct", "Films", "Séries")) {
+    } else {
+        Row(
+            Modifier.fillMaxWidth().background(Color(0xFF12100E)).padding(horizontal = 18.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Image(painterResource(R.drawable.home_iptv_icon), "HOME IPTV", Modifier.size(width = 76.dp, height = 52.dp), contentScale = ContentScale.Fit)
+            Box(Modifier.padding(horizontal = 12.dp).width(1.dp).height(30.dp).background(Color(0xFF615346)))
+            Row(
+                Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                listOf("Accueil", "TV en direct", "Films", "Séries").forEach { item ->
+                    val selected = item == section
+                    Text(
+                        item.uppercase(),
+                        color = if (selected) Cream else Muted,
+                        fontSize = 12.sp,
+                        letterSpacing = .4.sp,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                        modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                            .background(if (selected) Rust else Color.Transparent)
+                            .clickable { onNavigate(item) }.focusable()
+                            .padding(horizontal = 11.dp, vertical = 10.dp)
+                    )
+                }
+            }
+            if (section in listOf("TV en direct", "Films", "Séries")) {
+                Text(
+                    "⌕  RECHERCHE",
+                    color = Cream,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onSearch)
+                        .focusable().padding(horizontal = 10.dp, vertical = 9.dp)
+                )
+            }
             Text(
-                "⌕  RECHERCHE",
-                color = Cream,
+                "⚙  PARAMÈTRES",
+                color = if (section == "Paramètres") Rust else Cream,
                 fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onSearch)
-                    .focusable().padding(horizontal = 10.dp, vertical = 9.dp)
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { onNavigate("Paramètres") }
+                    .focusable().padding(horizontal = 10.dp, vertical = 8.dp)
             )
         }
-        Text(
-            "⚙  PARAMÈTRES",
-            color = if (section == "Paramètres") Rust else Cream,
-            fontSize = 11.sp,
-            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { onNavigate("Paramètres") }
-                .focusable().padding(horizontal = 10.dp, vertical = 8.dp)
-        )
     }
 }
 
@@ -1058,6 +1274,21 @@ private fun groupXtreamVariants(items: List<XtreamItem>, section: String): List<
 
 private fun normalizeSearchText(value: String): String =
     Normalizer.normalize(value.lowercase(), Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "")
+
+@Composable
+private fun CategoryChip(title: String, selected: Boolean, disabled: Boolean, onClick: () -> Unit) {
+    Text(
+        title,
+        color = if (selected) Cream else Muted,
+        fontSize = 12.sp,
+        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        maxLines = 1,
+        modifier = Modifier.clip(RoundedCornerShape(20.dp))
+            .background(if (selected) Rust else Panel)
+            .clickable(enabled = !disabled, onClick = onClick).focusable()
+            .padding(horizontal = 13.dp, vertical = 9.dp)
+    )
+}
 
 @Composable
 private fun CatalogRow(title: String, subtitle: String, logo: String?, onClick: () -> Unit) {
