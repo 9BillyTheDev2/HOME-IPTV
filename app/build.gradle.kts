@@ -15,10 +15,13 @@ android {
         versionName = System.getenv("HOME_IPTV_VERSION_NAME") ?: "0.1.8-alpha"
     }
 
-    val releaseStorePath = System.getenv("HOME_IPTV_KEYSTORE_PATH")
-    if (releaseStorePath != null) {
+    val releaseStoreFile = System.getenv("HOME_IPTV_KEYSTORE_PATH")
+        ?.takeIf { it.isNotBlank() }
+        ?.let { rootProject.file(it) }
+        ?.takeIf { it.isFile }
+    if (releaseStoreFile != null) {
         val releaseSigning = signingConfigs.create("release") {
-            storeFile = file(releaseStorePath)
+            storeFile = releaseStoreFile
             storePassword = System.getenv("HOME_IPTV_KEYSTORE_PASSWORD")
             keyAlias = System.getenv("HOME_IPTV_KEY_ALIAS")
             keyPassword = System.getenv("HOME_IPTV_KEY_PASSWORD")
