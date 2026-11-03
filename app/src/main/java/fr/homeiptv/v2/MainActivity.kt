@@ -49,12 +49,12 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
 
-private val Ink = Color(0xFF101419)
-private val Panel = Color(0xFF1C2329)
+private val Ink = Color(0xFF12110F)
+private val Panel = Color(0xFF211D19)
 private val Cream = Color(0xFFF2EBDD)
-private val Muted = Color(0xFFABB4B8)
+private val Muted = Color(0xFFB7ADA2)
 private val Rust = Color(0xFFC95132)
-private val Cyan = Color(0xFF65C9D7)
+private val Cyan = Color(0xFFD2AD68)
 
 private val artworkCache = object : LruCache<String, Bitmap>(8 * 1024 * 1024) {
     override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
@@ -171,7 +171,12 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
 
     MaterialTheme(colorScheme = darkColorScheme(background = Ink, surface = Panel, primary = Rust, onPrimary = Cream, onBackground = Cream, onSurface = Cream, secondary = Cyan)) {
         Column(Modifier.fillMaxSize().background(Ink)) {
-            HeaderNavigation(section, active?.name ?: "Aucune source", onNavigate = { section = it })
+            HeaderNavigation(
+                section,
+                onNavigate = { section = it },
+                onSearch = { if (section !in listOf("TV en direct", "Films", "Séries")) section = "Films" }
+            )
+            SectionBanner(section)
             when (section) {
                 "Paramètres" -> SettingsScreen(profiles, active, onAdd = { adding = true }, onSelect = {
                     store.setActive(it.id); active = it
@@ -559,7 +564,7 @@ private fun CatalogScreen(
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text(section, color = Cream, fontSize = 25.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text(section.uppercase(), color = Cream, fontSize = 25.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             OutlinedTextField(
                 value = searchText,
                 onValueChange = { searchText = it },
@@ -577,7 +582,7 @@ private fun CatalogScreen(
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(
-                Modifier.width(categoryRailWidth).fillMaxHeight().clip(RoundedCornerShape(14.dp)).background(Color(0xFF151B20))
+                Modifier.width(categoryRailWidth).fillMaxHeight().clip(RoundedCornerShape(14.dp)).background(Color(0xFF1B1713))
                     .verticalScroll(rememberScrollState()).padding(12.dp)
             ) {
                 Text("CATÉGORIES", color = Cyan, fontSize = 11.sp, letterSpacing = 1.5.sp, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp))
@@ -596,7 +601,7 @@ private fun CatalogScreen(
                     FilmDetailScreen(filmItem, filmDetails, m3uFilm, loading, onBackDetails, onPlayFilm, onPlayM3uFilm)
                 } else if (sourceKind == "M3U") {
                     if (filteredM3u.isEmpty() && !loading) Text(if (message.isNotBlank()) message else "Aucun contenu trouvé.", color = Muted, modifier = Modifier.padding(16.dp))
-                    LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LazyVerticalGrid(columns = GridCells.Adaptive(128.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(groupedM3u, key = { it.key }) { group ->
                             val entry = group.entries.first()
                             CatalogGridCard(entry.name, entry.group, entry.logo, landscape = section == "TV en direct", variantCount = group.entries.size) {
@@ -614,7 +619,7 @@ private fun CatalogScreen(
                         }
                         Text(text, color = Muted, modifier = Modifier.padding(16.dp))
                     } else {
-                        LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        LazyVerticalGrid(columns = GridCells.Adaptive(128.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             items(groupedXtream, key = { it.key }) { group ->
                                 val item = group.items.first()
                                 val subtitle = if (query.isNotBlank()) categoryName(item) else (item.year ?: categoryName(item))
@@ -777,44 +782,79 @@ private fun CategoryButton(title: String, selected: Boolean, disabled: Boolean, 
 }
 
 @Composable
-private fun HeaderNavigation(section: String, sourceName: String, onNavigate: (String) -> Unit) {
+private fun HeaderNavigation(
+    section: String,
+    onNavigate: (String) -> Unit,
+    onSearch: () -> Unit
+) {
     Row(
-        Modifier.fillMaxWidth().background(Color(0xFF151B20)).padding(horizontal = 18.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().background(Color(0xFF12100E)).padding(horizontal = 18.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Image(painterResource(R.drawable.home_iptv_icon), "HOME IPTV", Modifier.size(width = 68.dp, height = 48.dp), contentScale = ContentScale.Fit)
-        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Image(painterResource(R.drawable.home_iptv_icon), "HOME IPTV", Modifier.size(width = 76.dp, height = 52.dp), contentScale = ContentScale.Fit)
+        Box(Modifier.padding(horizontal = 12.dp).width(1.dp).height(30.dp).background(Color(0xFF615346)))
+        Row(
+            Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
             listOf("Accueil", "TV en direct", "Films", "Séries").forEach { item ->
                 val selected = item == section
                 Text(
-                    item,
+                    item.uppercase(),
                     color = if (selected) Cream else Muted,
-                    fontSize = 15.sp,
+                    fontSize = 12.sp,
+                    letterSpacing = .4.sp,
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                    modifier = Modifier.clip(RoundedCornerShape(10.dp))
-                        .background(if (selected) Rust.copy(alpha = .28f) else Color.Transparent)
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                        .background(if (selected) Rust else Color.Transparent)
                         .clickable { onNavigate(item) }.focusable()
-                        .padding(horizontal = 13.dp, vertical = 11.dp)
+                        .padding(horizontal = 11.dp, vertical = 10.dp)
                 )
             }
         }
-        Text(sourceName, color = Muted, fontSize = 11.sp, maxLines = 1, modifier = Modifier.widthIn(max = 130.dp).padding(horizontal = 8.dp))
         Text(
-            "⚙",
-            color = if (section == "Paramètres") Cyan else Cream,
-            fontSize = 23.sp,
-            modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onNavigate("Paramètres") }
-                .focusable().padding(horizontal = 13.dp, vertical = 8.dp)
+            "⌕  RECHERCHE",
+            color = if (section in listOf("TV en direct", "Films", "Séries")) Cream else Muted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onSearch)
+                .focusable().padding(horizontal = 10.dp, vertical = 9.dp)
         )
+        Text(
+            "⚙  PARAMÈTRES",
+            color = if (section == "Paramètres") Rust else Cream,
+            fontSize = 11.sp,
+            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { onNavigate("Paramètres") }
+                .focusable().padding(horizontal = 10.dp, vertical = 8.dp)
+        )
+    }
+}
+
+@Composable
+private fun SectionBanner(section: String) {
+    val heading = when (section) {
+        "Accueil" -> "Le grand écran, à ta façon."
+        "TV en direct" -> "Télévision en direct"
+        "Films" -> "Films"
+        "Séries" -> "Séries"
+        else -> "Ton espace HOME IPTV"
+    }
+    val compact = LocalConfiguration.current.screenWidthDp < 600
+    Box(Modifier.fillMaxWidth().height(if (compact) 76.dp else 96.dp)) {
+        Image(painterResource(R.drawable.home_frontier), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        Box(Modifier.fillMaxSize().background(Color(0x990E0D0B)))
+        Column(Modifier.align(Alignment.CenterStart).padding(horizontal = 22.dp, vertical = 8.dp)) {
+            Text("WESTERN  ·  RÉTROFUTURISTE", color = Cyan, fontSize = 9.sp, letterSpacing = 1.5.sp)
+            Text(heading, color = Cream, fontSize = if (compact) 18.sp else 21.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
     }
 }
 
 @Composable
 private fun HomeDashboard(recent: List<RecentPlayback>, noSource: Boolean, onResume: (RecentPlayback) -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp)) {
-        Hero()
-        Spacer(Modifier.height(20.dp))
-        Text("Reprendre", color = Cream, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+        Text("À regarder", color = Cream, fontSize = 23.sp, fontWeight = FontWeight.Bold)
         if (noSource) {
             Text("Ajoute une source dans ⚙ Paramètres pour commencer.", color = Muted, modifier = Modifier.padding(top = 8.dp))
         } else if (recent.isEmpty()) {
@@ -856,7 +896,7 @@ private fun CatalogGridCard(
     onClick: () -> Unit
 ) {
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Panel).clickable(onClick = onClick).focusable().padding(8.dp)) {
-        Box(Modifier.fillMaxWidth().height(if (landscape) 92.dp else 174.dp).clip(RoundedCornerShape(9.dp))) {
+        Box(Modifier.fillMaxWidth().height(if (landscape) 82.dp else 146.dp).clip(RoundedCornerShape(9.dp))) {
             NetworkArtwork(image, Modifier.fillMaxSize(), landscape)
             if (variantCount > 1) {
                 Text(
@@ -883,7 +923,7 @@ private fun NetworkArtwork(url: String?, modifier: Modifier = Modifier, landscap
             runCatching { loadArtwork(url)?.asImageBitmap() }.getOrNull()
         }
     }
-    Box(modifier.clip(RoundedCornerShape(9.dp)).background(Color(0xFF252B30)), contentAlignment = Alignment.Center) {
+    Box(modifier.clip(RoundedCornerShape(9.dp)).background(Color(0xFF29231E)), contentAlignment = Alignment.Center) {
         bitmap?.let {
             Image(
                 it,
