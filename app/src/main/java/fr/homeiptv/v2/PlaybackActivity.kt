@@ -1,18 +1,40 @@
 package fr.homeiptv.v2
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.net.Uri
 import android.os.Bundle
 import android.view.ViewGroup
-import android.widget.Toast
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.datasource.HttpDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
+
+private fun preferredDecoderSelector(preference: DecoderPreference): MediaCodecSelector {
+    val delegate = MediaCodecSelector.DEFAULT
+    val preferHardware = preference == DecoderPreference.HARDWARE
+    return MediaCodecSelector { mimeType, secure, tunneling ->
+        val available = delegate.getDecoderInfos(mimeType, secure, tunneling)
+        val preferred = available.filter { it.hardwareAccelerated == preferHardware }
+        preferred.ifEmpty { available }
+    }
+}
+
+private fun findHttpStatus(error: Throwable): Int? {
+    var cause: Throwable? = error
+    while (cause != null) {
+        if (cause is HttpDataSource.InvalidResponseCodeException) return cause.responseCode
+        cause = cause.cause
+    }
+    return null
+}
 
 class PlaybackActivity : Activity() {
     private var player: ExoPlayer? = null
@@ -43,11 +65,18 @@ class PlaybackActivity : Activity() {
             .setAllowCrossProtocolRedirects(true)
         val dataSourceFactory = DefaultDataSource.Factory(this, httpFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
-        player = ExoPlayer.Builder(this).setMediaSourceFactory(mediaSourceFactory).build().also { exo ->
+        val decoderPreference = runCatching {
+            DecoderPreference.valueOf(intent.getStringExtra(EXTRA_DECODER).orEmpty())
+        }.getOrDefault(DecoderPreference.HARDWARE)
+        val renderersFactory = DefaultRenderersFactory(this).setMediaCodecSelector(
+            preferredDecoderSelector(decoderPreference)
+        )
+        player = ExoPlayer.Builder(this, renderersFactory).setMediaSourceFactory(mediaSourceFactory).build().also { exo ->
             view.player = exo
             val inferredMimeType = when {
                 url.contains(".m3u8", ignoreCase = true) -> "application/x-mpegURL"
                 url.contains(".mpd", ignoreCase = true) -> "application/dash+xml"
+                uri.lastPathSegment?.substringAfterLast('.')?.equals("ts", ignoreCase = true) == true -> "video/mp2t"
                 else -> null
             }
             val mediaItem = MediaItem.Builder().setUri(uri).apply {
@@ -65,11 +94,13 @@ class PlaybackActivity : Activity() {
                         "ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES" -> "Le codec audio ou vidéo n’est pas pris en charge par cet appareil."
                         else -> "Lecture impossible."
                     }
-                    Toast.makeText(
-                        this@PlaybackActivity,
-                        "$explanation Code : ${error.errorCodeName}",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    val httpCode = findHttpStatus(error)
+                    val statusLine = httpCode?.let { "\nRéponse du serveur : HTTP $it" }.orEmpty()
+                    AlertDialog.Builder(this@PlaybackActivity)
+                        .setTitle("Lecture impossible")
+                        .setMessage("$explanation$statusLine\nCode : ${error.errorCodeName}")
+                        .setPositiveButton("OK", null)
+                        .show()
                 }
             })
             exo.setMediaItem(mediaItem)
@@ -100,5 +131,6 @@ class PlaybackActivity : Activity() {
         const val EXTRA_IMAGE = "home_iptv_recent_image"
         const val EXTRA_CATEGORY = "home_iptv_recent_category"
         const val EXTRA_POSITION = "home_iptv_recent_position"
+        const val EXTRA_DECODER = "home_iptv_decoder_preference"
     }
 }

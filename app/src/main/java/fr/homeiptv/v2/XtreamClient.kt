@@ -261,9 +261,13 @@ class XtreamClient(
         }
     }
 
-    fun streamUrl(kind: String, item: XtreamItem): String {
+    fun streamUrl(
+        kind: String,
+        item: XtreamItem,
+        liveFormat: LiveStreamFormat = LiveStreamFormat.MPEG_TS
+    ): String {
         val segment = if (kind == "live") "live" else if (kind == "vod") "movie" else "series"
-        val ext = item.extension ?: if (kind == "live") "ts" else "mp4"
+        val ext = if (kind == "live") liveFormat.extension else item.extension ?: "mp4"
         return "$base/$segment/${Uri.encode(username)}/${Uri.encode(password)}/${Uri.encode(item.id)}.$ext"
     }
 

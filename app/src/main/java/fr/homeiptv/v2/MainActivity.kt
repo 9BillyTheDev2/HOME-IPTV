@@ -104,6 +104,8 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
     var searchJob by remember { mutableStateOf<Job?>(null) }
     val scope = rememberCoroutineScope()
     val activity = LocalContext.current as Activity
+    val playerSettingsStore = remember { PlayerSettingsStore(activity) }
+    var playerSettings by remember { mutableStateOf(playerSettingsStore.get()) }
     val selectedTab = when (section) { "Films" -> "vod"; "Séries" -> "series"; else -> "live" }
     var availableUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
     var updateMessage by remember { mutableStateOf<String?>(null) }
@@ -198,6 +200,9 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                     checkingUpdate -> "Recherche de mise à jour…"
                     availableUpdate != null -> "Version ${availableUpdate!!.versionName} disponible."
                     else -> null
+                }, playerSettings = playerSettings, onPlayerSettingsChanged = { updated ->
+                    playerSettingsStore.save(updated)
+                    playerSettings = updated
                 })
                 "Accueil" -> HomeDashboard(recentContent, active == null, onResume = { recent ->
                     activity.play(recent.url, recent.kind, recent.title, recent.subtitle, recent.image, recent.category, recent.positionMs)
@@ -277,7 +282,7 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                         val kind = selectedTab
                         val p = active
                         if (p != null) activity.play(
-                            XtreamClient(p.endpoint, p.user, p.password).streamUrl(kind, item),
+                            XtreamClient(p.endpoint, p.user, p.password).streamUrl(kind, item, playerSettings.liveStreamFormat),
                             kind, item.name, item.year ?: "", item.logo,
                             xtreamCategories.firstOrNull { item.categoryId in it.ids }?.name.orEmpty()
                         )
@@ -385,7 +390,8 @@ private fun Activity.play(
         .putExtra(PlaybackActivity.EXTRA_SUBTITLE, subtitle)
         .putExtra(PlaybackActivity.EXTRA_IMAGE, image)
         .putExtra(PlaybackActivity.EXTRA_CATEGORY, category)
-        .putExtra(PlaybackActivity.EXTRA_POSITION, positionMs))
+        .putExtra(PlaybackActivity.EXTRA_POSITION, positionMs)
+        .putExtra(PlaybackActivity.EXTRA_DECODER, PlayerSettingsStore(this).get().decoderPreference.name))
 }
 
 private fun requireHttpEndpoint(value: String) {
@@ -420,8 +426,61 @@ private fun Hero() {
 }
 
 @Composable
-private fun SettingsScreen(profiles: List<SourceProfile>, active: SourceProfile?, onAdd: () -> Unit, onSelect: (SourceProfile) -> Unit, onDelete: (SourceProfile) -> Unit, onVpn: () -> Unit, onCheckUpdate: () -> Unit, updateStatus: String?) {
+private fun PlayerSettingRow(title: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth()
+            .padding(vertical = 3.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Panel)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(selected = selected, onClick = onClick, colors = RadioButtonDefaults.colors(selectedColor = Rust, unselectedColor = Muted))
+        Text(title, color = Cream, modifier = Modifier.padding(start = 4.dp))
+    }
+}
+
+@Composable
+private fun SettingsScreen(profiles: List<SourceProfile>, active: SourceProfile?, onAdd: () -> Unit, onSelect: (SourceProfile) -> Unit, onDelete: (SourceProfile) -> Unit, onVpn: () -> Unit, onCheckUpdate: () -> Unit, updateStatus: String?, playerSettings: PlayerSettings, onPlayerSettingsChanged: (PlayerSettings) -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        Text("Lecteur", color = Cream, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+        Text("Lecteur intégré HOME IPTV (Media3)", color = Muted, modifier = Modifier.padding(top = 5.dp, bottom = 12.dp))
+        Text("Format des chaînes Xtream en direct", color = Cream, fontWeight = FontWeight.SemiBold)
+        PlayerSettingRow(
+            title = "MPEG-TS (.ts)",
+            selected = playerSettings.liveStreamFormat == LiveStreamFormat.MPEG_TS,
+            onClick = { onPlayerSettingsChanged(playerSettings.copy(liveStreamFormat = LiveStreamFormat.MPEG_TS)) }
+        )
+        PlayerSettingRow(
+            title = "HLS (.m3u8)",
+            selected = playerSettings.liveStreamFormat == LiveStreamFormat.HLS,
+            onClick = { onPlayerSettingsChanged(playerSettings.copy(liveStreamFormat = LiveStreamFormat.HLS)) }
+        )
+        Text(
+            "Ce choix concerne les chaînes Xtream. Les liens M3U gardent leur format d’origine.",
+            color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp, bottom = 15.dp)
+        )
+        Text("Décodeur vidéo", color = Cream, fontWeight = FontWeight.SemiBold)
+        PlayerSettingRow(
+            title = "Matériel prioritaire",
+            selected = playerSettings.decoderPreference == DecoderPreference.HARDWARE,
+            onClick = { onPlayerSettingsChanged(playerSettings.copy(decoderPreference = DecoderPreference.HARDWARE)) }
+        )
+        PlayerSettingRow(
+            title = "Logiciel prioritaire",
+            selected = playerSettings.decoderPreference == DecoderPreference.SOFTWARE,
+            onClick = { onPlayerSettingsChanged(playerSettings.copy(decoderPreference = DecoderPreference.SOFTWARE)) }
+        )
+        Text(
+            "Le lecteur privilégie ce type de décodeur s’il est disponible; sinon il essaie un décodeur compatible.",
+            color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp, bottom = 15.dp)
+        )
+        Text("Audio et rendu vidéo", color = Cream, fontWeight = FontWeight.SemiBold)
+        Text(
+            "OpenSL ES et OpenGL ne sont pas des interrupteurs pris en charge par le lecteur Media3 intégré. HOME IPTV utilise les sorties audio et vidéo Android.",
+            color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 5.dp, bottom = 20.dp)
+        )
         Text("Mes sources", color = Cream, fontSize = 25.sp, fontWeight = FontWeight.Bold)
         Text("Les identifiants restent chiffrés sur cet appareil.", color = Muted, modifier = Modifier.padding(top = 5.dp, bottom = 15.dp))
         profiles.forEach { profile ->
