@@ -18,6 +18,23 @@ data class XtreamItem(
     val year: String? = null
 )
 
+data class XtreamMediaDetails(
+    val title: String,
+    val poster: String?,
+    val backdrop: String?,
+    val releaseDate: String?,
+    val duration: String?,
+    val director: String?,
+    val genre: String?,
+    val cast: String?,
+    val plot: String?,
+    val rating: String?
+)
+
+data class XtreamEpisodeInfo(val number: String, val item: XtreamItem, val duration: String?, val thumbnail: String?)
+data class XtreamSeason(val number: String, val episodes: List<XtreamEpisodeInfo>)
+data class XtreamSeriesDetails(val media: XtreamMediaDetails, val seasons: List<XtreamSeason>)
+
 data class XtreamCategory(val id: String, val name: String, val ids: List<String> = listOf(id))
 
 /** Client-side Xtream Codes API access. No server-side proxy and no credentials in logs. */
@@ -154,6 +171,78 @@ class XtreamClient(
     }
 
     companion object { private const val MAX_SEARCH_RESPONSE_BYTES = 512L * 1024 * 1024 }
+
+    suspend fun vodDetails(item: XtreamItem): XtreamMediaDetails = withContext(Dispatchers.IO) {
+        val response = request(mapOf("action" to "get_vod_info", "vod_id" to item.id)) as? JSONObject
+        val info = response?.optJSONObject("info")
+        buildMediaDetails(info, item.name, item.logo, item.plot, item.year)
+    }
+
+    suspend fun seriesDetails(item: XtreamItem): XtreamSeriesDetails = withContext(Dispatchers.IO) {
+        val response = request(mapOf("action" to "get_series_info", "series_id" to item.id)) as? JSONObject
+        val info = response?.optJSONObject("info")
+        val media = buildMediaDetails(info, item.name, item.logo, item.plot, item.year)
+        val rawSeasons = response?.optJSONObject("episodes")
+        val seasons = mutableListOf<XtreamSeason>()
+        if (rawSeasons != null) {
+            val keys = rawSeasons.keys().asSequence().toList().sortedBy { it.toIntOrNull() ?: Int.MAX_VALUE }
+            keys.forEach { seasonNumber ->
+                val entries = rawSeasons.optJSONArray(seasonNumber) ?: return@forEach
+                val episodes = buildList {
+                    for (index in 0 until entries.length()) {
+                        val episode = entries.optJSONObject(index) ?: continue
+                        val id = episode.optString("id").takeIf(String::isNotBlank) ?: continue
+                        val episodeInfo = episode.optJSONObject("info")
+                        val title = episode.optString("title").ifBlank { "Épisode" }
+                        val details = XtreamItem(
+                            id = id,
+                            name = title,
+                            extension = episode.optString("container_extension").ifBlank { null },
+                            plot = episodeInfo?.optString("plot")?.ifBlank { null } ?: episode.optString("plot").ifBlank { null }
+                        )
+                        add(
+                            XtreamEpisodeInfo(
+                                number = episode.optString("episode_num").ifBlank { (index + 1).toString() },
+                                item = details,
+                                duration = episodeInfo?.optString("duration")?.ifBlank { null }
+                                    ?: episode.optString("duration").ifBlank { null },
+                                thumbnail = episodeInfo?.optString("movie_image")?.ifBlank { null }
+                                    ?: episode.optString("movie_image").ifBlank { null }
+                            )
+                        )
+                    }
+                }
+                seasons += XtreamSeason(seasonNumber, episodes)
+            }
+        }
+        XtreamSeriesDetails(media, seasons)
+    }
+
+    private fun buildMediaDetails(
+        info: JSONObject?,
+        fallbackTitle: String,
+        fallbackPoster: String?,
+        fallbackPlot: String?,
+        fallbackYear: String?
+    ): XtreamMediaDetails {
+        fun field(vararg keys: String): String? = keys.firstNotNullOfOrNull { key ->
+            info?.optString(key)?.trim()?.takeIf { it.isNotBlank() && !it.equals("null", true) }
+        }
+        val backdropArray = info?.optJSONArray("backdrop_path")
+        val backdrop = backdropArray?.optString(0)?.takeIf { it.isNotBlank() && it != "null" }
+        return XtreamMediaDetails(
+            title = field("name", "title") ?: fallbackTitle,
+            poster = field("movie_image", "cover_big", "cover") ?: fallbackPoster,
+            backdrop = backdrop ?: field("backdrop", "backdrop_path"),
+            releaseDate = field("releasedate", "releaseDate", "year") ?: fallbackYear,
+            duration = field("duration"),
+            director = field("director"),
+            genre = field("genre"),
+            cast = field("cast", "actors"),
+            plot = field("plot") ?: fallbackPlot,
+            rating = field("rating")
+        )
+    }
 
     suspend fun episodes(seriesId: String): List<XtreamItem> = withContext(Dispatchers.IO) {
         val json = request(mapOf("action" to "get_series_info", "series_id" to seriesId)) as? JSONObject
