@@ -1257,7 +1257,7 @@ private fun HeaderNavigation(
                     color = if (section == "Paramètres") Rust else Cream,
                     fontSize = 12.sp,
                     modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onNavigate("Paramètres") }
-                        .focusable().padding(end = 4.dp, vertical = 6.dp)
+                        .focusable().padding(end = 4.dp).padding(vertical = 6.dp)
                 )
             }
             Row(
