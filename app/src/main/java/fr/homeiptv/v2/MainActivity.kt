@@ -14,6 +14,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
@@ -45,6 +48,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardActions
+import androidx.compose.ui.text.input.KeyboardOptions
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -767,32 +773,93 @@ private fun AddSourceDialog(onDismiss: () -> Unit, onSave: (String, String, Stri
     var user by remember { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
     var validationError by remember { mutableStateOf<String?>(null) }
+    val nameFocus = remember { FocusRequester() }
+    val m3uFocus = remember { FocusRequester() }
+    val xtreamFocus = remember { FocusRequester() }
+    val endpointFocus = remember { FocusRequester() }
+    val userFocus = remember { FocusRequester() }
+    val passFocus = remember { FocusRequester() }
+    val cancelFocus = remember { FocusRequester() }
+    val saveFocus = remember { FocusRequester() }
+    val isTelevision = LocalContext.current.isTelevisionDevice()
     val dialogTextHeight = minOf(450.dp, (LocalConfiguration.current.screenHeightDp * .55f).dp)
+    LaunchedEffect(Unit) {
+        if (isTelevision) nameFocus.requestFocus()
+    }
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Ajouter une source") }, text = {
         Column(Modifier.fillMaxWidth().heightIn(max = dialogTextHeight).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(name, { name = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Nom du profil") }, singleLine = true)
+            OutlinedTextField(
+                name, { name = it },
+                modifier = Modifier.fillMaxWidth().focusRequester(nameFocus).tvFocusable()
+                    .focusProperties { down = m3uFocus },
+                label = { Text("Nom du profil") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                keyboardActions = KeyboardActions(onNext = { m3uFocus.requestFocus() })
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("M3U", "Xtream").forEach { item -> FilterChip(selected = kind == item, onClick = { kind = item }, label = { Text(item) }, modifier = Modifier.tvFocusable()) }
+                FilterChip(
+                    selected = kind == "M3U", onClick = { kind = "M3U" }, label = { Text("M3U") },
+                    modifier = Modifier.focusRequester(m3uFocus).tvFocusable()
+                        .focusProperties { up = nameFocus; down = endpointFocus; right = xtreamFocus }
+                )
+                FilterChip(
+                    selected = kind == "Xtream", onClick = { kind = "Xtream" }, label = { Text("Xtream") },
+                    modifier = Modifier.focusRequester(xtreamFocus).tvFocusable()
+                        .focusProperties { up = nameFocus; down = endpointFocus; left = m3uFocus }
+                )
             }
-            OutlinedTextField(endpoint, { endpoint = it; validationError = null }, modifier = Modifier.fillMaxWidth(), label = { Text(if (kind == "M3U") "URL de la playlist" else "Adresse du serveur") }, singleLine = true)
+            OutlinedTextField(
+                endpoint, { endpoint = it; validationError = null },
+                modifier = Modifier.fillMaxWidth().focusRequester(endpointFocus).tvFocusable()
+                    .focusProperties { up = m3uFocus; down = if (kind == "Xtream") userFocus else cancelFocus },
+                label = { Text(if (kind == "M3U") "URL de la playlist" else "Adresse du serveur") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = if (kind == "Xtream") ImeAction.Next else ImeAction.Done),
+                keyboardActions = KeyboardActions(
+                    onNext = { userFocus.requestFocus() },
+                    onDone = { saveFocus.requestFocus() }
+                )
+            )
             if (kind == "Xtream") {
-                OutlinedTextField(user, { user = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Identifiant") }, singleLine = true)
-                OutlinedTextField(pass, { pass = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Mot de passe") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
+                OutlinedTextField(
+                    user, { user = it },
+                    modifier = Modifier.fillMaxWidth().focusRequester(userFocus).tvFocusable()
+                        .focusProperties { up = endpointFocus; down = passFocus },
+                    label = { Text("Identifiant") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { passFocus.requestFocus() })
+                )
+                OutlinedTextField(
+                    pass, { pass = it },
+                    modifier = Modifier.fillMaxWidth().focusRequester(passFocus).tvFocusable()
+                        .focusProperties { up = userFocus; down = cancelFocus },
+                    label = { Text("Mot de passe") }, singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { saveFocus.requestFocus() })
+                )
             }
             Text("HTTP et HTTPS sont acceptés. En HTTP, les identifiants Xtream et les flux ne sont pas chiffrés.", color = Muted, fontSize = 11.sp)
             validationError?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp) }
         }
-    }, confirmButton = { TextButton(onClick = {
-        val uri = android.net.Uri.parse(endpoint.trim())
-        val validHttpUrl = (uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) && !uri.host.isNullOrBlank()
-        validationError = when {
-            name.isBlank() -> "Donne un nom à cette source."
-            !validHttpUrl -> "Entre une adresse HTTP ou HTTPS complète avec un nom de serveur valide."
-            kind == "Xtream" && (user.isBlank() || pass.isBlank()) -> "Renseigne l’identifiant et le mot de passe Xtream."
-            else -> null
+    }, confirmButton = { TextButton(
+        modifier = Modifier.focusRequester(saveFocus).tvFocusable()
+            .focusProperties { up = if (kind == "Xtream") passFocus else endpointFocus; left = cancelFocus },
+        onClick = {
+            val uri = android.net.Uri.parse(endpoint.trim())
+            val validHttpUrl = (uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) && !uri.host.isNullOrBlank()
+            validationError = when {
+                name.isBlank() -> "Donne un nom à cette source."
+                !validHttpUrl -> "Entre une adresse HTTP ou HTTPS complète avec un nom de serveur valide."
+                kind == "Xtream" && (user.isBlank() || pass.isBlank()) -> "Renseigne l’identifiant et le mot de passe Xtream."
+                else -> null
+            }
+            if (validationError == null) onSave(name.trim(), kind, endpoint.trim(), user.trim(), pass)
         }
-        if (validationError == null) onSave(name.trim(), kind, endpoint.trim(), user.trim(), pass)
-    }) { Text("Tester et ajouter") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } })
+    ) { Text("Tester et ajouter") } }, dismissButton = { TextButton(
+        modifier = Modifier.focusRequester(cancelFocus).tvFocusable()
+            .focusProperties { up = if (kind == "Xtream") passFocus else endpointFocus; right = saveFocus },
+        onClick = onDismiss
+    ) { Text("Annuler") } })
 }
 
 @Composable
@@ -904,7 +971,7 @@ private fun CatalogScreen(
                     else Text("⌕", color = Cyan, fontSize = 21.sp)
                 }
             )
-        } else if (!showingDetail) {
+        } else if (!showingDetail && !isTelevision) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 OutlinedTextField(
                     value = searchText,
@@ -921,7 +988,7 @@ private fun CatalogScreen(
                 if (loading || searchLoading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
             }
         }
-        if (!showingDetail) Spacer(Modifier.height(12.dp))
+        if (!showingDetail && !isTelevision) Spacer(Modifier.height(12.dp))
         @Composable
         fun CatalogContent(modifier: Modifier = Modifier) {
             Column(modifier) {
@@ -978,6 +1045,47 @@ private fun CatalogScreen(
         }
         if (showingDetail) {
             CatalogContent(Modifier.weight(1f).fillMaxWidth())
+        } else if (isTelevision) {
+            Column(Modifier.fillMaxSize()) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("CATÉGORIES", color = Cyan, fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold)
+                    if (sourceKind == "M3U") {
+                        CategoryButton("Toutes", selectedGroup == null, query.isNotBlank()) { onSelectGroup("") }
+                        groups.forEach { group -> CategoryButton(group, selectedGroup == group && query.isBlank(), false) { onSelectGroup(group) } }
+                    } else {
+                        categories.forEach { category -> CategoryButton(category.name, selectedGroup == category.name && query.isBlank(), false) { onSelectGroup(category.name) } }
+                    }
+                    if (groups.isEmpty() && categories.isEmpty()) Text(
+                        if (sourceKind.isBlank()) "Source à configurer dans Paramètres" else "Aucune catégorie reçue",
+                        color = Muted, fontSize = 12.sp
+                    )
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = searchText,
+                        onValueChange = { searchText = it },
+                        modifier = Modifier.widthIn(min = 220.dp, max = 360.dp).tvFocusable(),
+                        singleLine = true,
+                        label = { Text("Tout rechercher") },
+                        placeholder = { Text("Chaîne, film ou série") },
+                        trailingIcon = {
+                            if (searchText.isNotEmpty()) TextButton(onClick = { searchText = "" }) { Text("×") }
+                            else Text("⌕", color = Cyan, fontSize = 21.sp)
+                        }
+                    )
+                    if (loading || searchLoading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                }
+                Spacer(Modifier.height(12.dp))
+                CatalogContent(Modifier.weight(1f).fillMaxWidth())
+            }
         } else if (compact) {
             Column(Modifier.fillMaxSize()) {
                 Row(
