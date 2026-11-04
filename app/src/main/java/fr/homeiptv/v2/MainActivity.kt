@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,7 +32,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CornerRadius
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -243,7 +250,7 @@ private fun HomeApp(store: SourceStore, resumeTick: Int) {
                 section,
                 onNavigate = { section = it }
             )
-            SectionBanner(section)
+            SectionHeader(section)
             Box(Modifier.weight(1f).fillMaxWidth()) {
             when (section) {
                 "Paramètres" -> SettingsScreen(profiles, active, onAdd = { adding = true }, onSelect = {
@@ -676,11 +683,11 @@ private fun SettingsScreen(
                         color = if (profile.id == active?.id) Cyan else Cream,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable { onSelect(profile) }.focusable().padding(8.dp)
+                        modifier = Modifier.clickable { onSelect(profile) }.tvFocusable().padding(8.dp)
                     )
                     Text(
                         "×", color = Muted, fontSize = 20.sp,
-                        modifier = Modifier.clickable { onDelete(profile) }.focusable().padding(horizontal = 8.dp)
+                        modifier = Modifier.clickable { onDelete(profile) }.tvFocusable().padding(horizontal = 8.dp)
                     )
                 }
             }
@@ -1174,7 +1181,7 @@ private fun SeriesDetailScreen(
                         Row(
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(Panel)
                                 .border(1.dp, Color(0xFF3D352D), RoundedCornerShape(9.dp))
-                                .clickable { onPlayEpisode(episode) }.focusable().padding(6.dp),
+                                .clickable { onPlayEpisode(episode) }.tvFocusable().padding(6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
@@ -1220,7 +1227,7 @@ private fun SeriesDetailScreen(
                         Row(
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(Panel)
                                 .border(1.dp, Color(0xFF3D352D), RoundedCornerShape(9.dp))
-                                .clickable { onPlayEpisode(episode) }.focusable().padding(6.dp),
+                                .clickable { onPlayEpisode(episode) }.tvFocusable().padding(6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
@@ -1287,9 +1294,31 @@ private fun CategoryButton(title: String, selected: Boolean, disabled: Boolean, 
         maxLines = 2,
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp))
             .background(if (selected) Rust.copy(alpha = .34f) else Color.Transparent)
-            .clickable(enabled = !disabled, onClick = onClick).focusable()
+            .clickable(enabled = !disabled, onClick = onClick).tvFocusable()
             .padding(horizontal = 10.dp, vertical = 11.dp)
     )
+}
+
+@Composable
+private fun Modifier.tvFocusable(): Modifier = composed {
+    val isTelevision = LocalContext.current.isTelevisionDevice()
+    var focused by remember { mutableStateOf(false) }
+    this.onFocusChanged { focused = isTelevision && it.isFocused }
+        .focusable()
+        .drawWithContent {
+            drawContent()
+            if (focused) {
+                val stroke = 3.dp.toPx()
+                val inset = stroke / 2f
+                drawRoundRect(
+                    color = Cream,
+                    topLeft = Offset(inset, inset),
+                    size = Size(size.width - stroke, size.height - stroke),
+                    cornerRadius = CornerRadius(9.dp.toPx(), 9.dp.toPx()),
+                    style = Stroke(width = stroke)
+                )
+            }
+        }
 }
 
 @Composable
@@ -1319,15 +1348,24 @@ private fun HeaderNavigation(
             listOf("Accueil", "TV", "Films", "Séries").forEach { label ->
                 val destination = if (label == "TV") "TV en direct" else label
                 val selected = destination == section
+                val focused = remember(label) { mutableStateOf(false) }
                 Text(
                     label,
-                    color = if (selected) Cream else Muted,
+                    color = if (selected || focused.value) Cream else Muted,
                     fontSize = if (compact) 11.sp else 14.sp,
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                     maxLines = 1,
                     modifier = Modifier.clip(RoundedCornerShape(9.dp))
-                        .background(if (selected) Rust else Color.Transparent)
-                        .clickable { onNavigate(destination) }.focusable()
+                        .background(
+                            when {
+                                selected -> Rust
+                                focused.value -> Rust.copy(alpha = .16f)
+                                else -> Color.Transparent
+                            }
+                        )
+                        .clickable { onNavigate(destination) }
+                        .onFocusChanged { focused.value = it.isFocused }
+                        .tvFocusable()
                         .padding(horizontal = if (compact) 10.dp else 16.dp, vertical = if (compact) 10.dp else 12.dp)
                 )
                 if (label != "Séries") HeaderSeparator(compact)
@@ -1339,7 +1377,7 @@ private fun HeaderNavigation(
             color = if (section == "Paramètres") Rust else Cream,
             fontSize = if (compact) 21.sp else 26.sp,
             modifier = Modifier.clip(RoundedCornerShape(9.dp)).clickable { onNavigate("Paramètres") }
-                .focusable().padding(horizontal = if (compact) 7.dp else 12.dp, vertical = 6.dp)
+                .tvFocusable().padding(horizontal = if (compact) 7.dp else 12.dp, vertical = 6.dp)
         )
     }
 }
@@ -1350,7 +1388,7 @@ private fun HeaderSeparator(compact: Boolean) {
 }
 
 @Composable
-private fun SectionBanner(section: String) {
+private fun SectionHeader(section: String) {
     val heading = when (section) {
         "Accueil" -> "Le grand écran, à ta façon."
         "TV en direct" -> "Télévision en direct"
@@ -1369,39 +1407,27 @@ private fun SectionBanner(section: String) {
             delay(60_000L)
         }
     }
-    val background = rememberRandomFrontierBackground()
-    Box(Modifier.fillMaxWidth().height(if (compact) 76.dp else 96.dp)) {
-        Image(painterResource(background), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        Box(Modifier.fillMaxSize().background(Color(0x880E0D0B)))
-        Column(Modifier.align(Alignment.CenterStart).padding(horizontal = 22.dp, vertical = 8.dp)) {
-            Text(heading, color = Cream, fontSize = if (compact) 18.sp else 21.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-        }
-        Column(Modifier.align(Alignment.TopEnd).padding(horizontal = 12.dp, vertical = 7.dp), horizontalAlignment = Alignment.End) {
-            Text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(now)), color = Cream, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-@Composable
-private fun rememberRandomFrontierBackground(): Int {
-    val backgrounds = remember {
-        listOf(
-            R.drawable.frontier_scene_0,
-            R.drawable.frontier_scene_1,
-            R.drawable.frontier_scene_2,
-            R.drawable.frontier_scene_3,
-            R.drawable.frontier_scene_4,
-            R.drawable.frontier_scene_5
+    Row(
+        Modifier.fillMaxWidth()
+            .height(if (compact) 42.dp else 48.dp)
+            .padding(horizontal = if (compact) 14.dp else 22.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            heading,
+            color = Cream,
+            fontSize = if (compact) 17.sp else 20.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(now)),
+            color = Muted,
+            fontSize = if (compact) 11.sp else 13.sp,
+            fontWeight = FontWeight.Bold
         )
     }
-    var current by remember { mutableStateOf(backgrounds.random()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(5 * 60_000L)
-            current = backgrounds.filterNot { it == current }.random()
-        }
-    }
-    return current
 }
 
 @Composable
@@ -1589,7 +1615,7 @@ private fun SavedLibraryScreen(
 private fun RecentCard(item: RecentPlayback, width: Dp, onClick: () -> Unit) {
     val label = when (item.kind) { "live" -> "DERNIÈRE CHAÎNE"; "series" -> "REPRENDRE LA SÉRIE"; else -> "REPRENDRE LE FILM" }
     Column(
-        Modifier.width(width).clip(RoundedCornerShape(14.dp)).background(Panel).clickable(onClick = onClick).focusable().padding(10.dp)
+        Modifier.width(width).clip(RoundedCornerShape(14.dp)).background(Panel).clickable(onClick = onClick).tvFocusable().padding(10.dp)
     ) {
         NetworkArtwork(item.image, Modifier.fillMaxWidth().height(132.dp), landscape = item.kind == "live")
         Text(label, color = Cyan, fontSize = 10.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 9.dp))
@@ -1615,7 +1641,7 @@ private fun CatalogGridCard(
 ) {
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Panel)
         .border(1.dp, Color(0xFF302A24), RoundedCornerShape(12.dp))
-        .clickable(onClick = onClick).focusable().padding(8.dp)) {
+        .clickable(onClick = onClick).tvFocusable().padding(8.dp)) {
         Box(Modifier.fillMaxWidth().height(if (landscape) 82.dp else 146.dp).clip(RoundedCornerShape(9.dp))) {
             NetworkArtwork(image, Modifier.fillMaxSize(), landscape)
             if (variantCount > 1) {
@@ -1636,7 +1662,7 @@ private fun CatalogGridCard(
                     fontSize = 20.sp,
                     modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp)
                         .clip(RoundedCornerShape(20.dp)).background(Ink.copy(alpha = .88f))
-                        .clickable(onClick = toggle).focusable().padding(horizontal = 8.dp, vertical = 3.dp)
+                        .clickable(onClick = toggle).tvFocusable().padding(horizontal = 8.dp, vertical = 3.dp)
                 )
             }
         }
@@ -1753,14 +1779,14 @@ private fun CategoryChip(title: String, selected: Boolean, disabled: Boolean, on
         maxLines = 1,
         modifier = Modifier.clip(RoundedCornerShape(20.dp))
             .background(if (selected) Rust else Panel)
-            .clickable(enabled = !disabled, onClick = onClick).focusable()
+            .clickable(enabled = !disabled, onClick = onClick).tvFocusable()
             .padding(horizontal = 13.dp, vertical = 9.dp)
     )
 }
 
 @Composable
 private fun CatalogRow(title: String, subtitle: String, logo: String?, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Panel).clickable(onClick = onClick).focusable().padding(horizontal = 13.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Panel).clickable(onClick = onClick).tvFocusable().padding(horizontal = 13.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) { Text(title, color = Cream, fontWeight = FontWeight.Medium); if (subtitle.isNotBlank()) Text(subtitle, color = Muted, fontSize = 11.sp) }
         Text(if (logo.isNullOrBlank()) "▶" else "▶", color = Rust, fontSize = 18.sp)
     }
