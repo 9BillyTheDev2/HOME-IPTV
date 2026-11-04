@@ -773,77 +773,58 @@ private fun AddSourceDialog(onDismiss: () -> Unit, onSave: (String, String, Stri
     var user by remember { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
     var validationError by remember { mutableStateOf<String?>(null) }
-    val nameFocus = remember { FocusRequester() }
-    val m3uFocus = remember { FocusRequester() }
-    val xtreamFocus = remember { FocusRequester() }
-    val endpointFocus = remember { FocusRequester() }
-    val userFocus = remember { FocusRequester() }
-    val passFocus = remember { FocusRequester() }
-    val cancelFocus = remember { FocusRequester() }
-    val saveFocus = remember { FocusRequester() }
+    var editingField by remember { mutableStateOf<String?>(null) }
+    var editorValue by remember { mutableStateOf("") }
     val isTelevision = LocalContext.current.isTelevisionDevice()
     val dialogTextHeight = minOf(450.dp, (LocalConfiguration.current.screenHeightDp * .55f).dp)
-    LaunchedEffect(Unit) {
-        if (isTelevision) nameFocus.requestFocus()
+
+    fun openEditor(field: String, value: String) {
+        editingField = field
+        editorValue = value
     }
+    fun commitEditor() {
+        when (editingField) {
+            "name" -> name = editorValue
+            "endpoint" -> { endpoint = editorValue; validationError = null }
+            "user" -> user = editorValue
+            "pass" -> pass = editorValue
+        }
+        editingField = null
+    }
+
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Ajouter une source") }, text = {
         Column(Modifier.fillMaxWidth().heightIn(max = dialogTextHeight).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                name, { name = it },
-                modifier = Modifier.fillMaxWidth().focusRequester(nameFocus).tvFocusable()
-                    .focusProperties { down = m3uFocus },
-                label = { Text("Nom du profil") }, singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                keyboardActions = KeyboardActions(onNext = { m3uFocus.requestFocus() })
-            )
+            if (isTelevision) {
+                SourceTextEntryButton("Nom du profil", name) { openEditor("name", name) }
+            } else {
+                OutlinedTextField(name, { name = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Nom du profil") }, singleLine = true)
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = kind == "M3U", onClick = { kind = "M3U" }, label = { Text("M3U") },
-                    modifier = Modifier.focusRequester(m3uFocus).tvFocusable()
-                        .focusProperties { up = nameFocus; down = endpointFocus; right = xtreamFocus }
-                )
-                FilterChip(
-                    selected = kind == "Xtream", onClick = { kind = "Xtream" }, label = { Text("Xtream") },
-                    modifier = Modifier.focusRequester(xtreamFocus).tvFocusable()
-                        .focusProperties { up = nameFocus; down = endpointFocus; left = m3uFocus }
+                FilterChip(selected = kind == "M3U", onClick = { kind = "M3U" }, label = { Text("M3U") }, modifier = Modifier.tvFocusable())
+                FilterChip(selected = kind == "Xtream", onClick = { kind = "Xtream" }, label = { Text("Xtream") }, modifier = Modifier.tvFocusable())
+            }
+            if (isTelevision) {
+                SourceTextEntryButton(if (kind == "M3U") "URL de la playlist" else "Adresse du serveur", endpoint) { openEditor("endpoint", endpoint) }
+            } else {
+                OutlinedTextField(
+                    endpoint, { endpoint = it; validationError = null }, modifier = Modifier.fillMaxWidth(),
+                    label = { Text(if (kind == "M3U") "URL de la playlist" else "Adresse du serveur") }, singleLine = true
                 )
             }
-            OutlinedTextField(
-                endpoint, { endpoint = it; validationError = null },
-                modifier = Modifier.fillMaxWidth().focusRequester(endpointFocus).tvFocusable()
-                    .focusProperties { up = m3uFocus; down = if (kind == "Xtream") userFocus else cancelFocus },
-                label = { Text(if (kind == "M3U") "URL de la playlist" else "Adresse du serveur") }, singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = if (kind == "Xtream") ImeAction.Next else ImeAction.Done),
-                keyboardActions = KeyboardActions(
-                    onNext = { userFocus.requestFocus() },
-                    onDone = { saveFocus.requestFocus() }
-                )
-            )
             if (kind == "Xtream") {
-                OutlinedTextField(
-                    user, { user = it },
-                    modifier = Modifier.fillMaxWidth().focusRequester(userFocus).tvFocusable()
-                        .focusProperties { up = endpointFocus; down = passFocus },
-                    label = { Text("Identifiant") }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                    keyboardActions = KeyboardActions(onNext = { passFocus.requestFocus() })
-                )
-                OutlinedTextField(
-                    pass, { pass = it },
-                    modifier = Modifier.fillMaxWidth().focusRequester(passFocus).tvFocusable()
-                        .focusProperties { up = userFocus; down = cancelFocus },
-                    label = { Text("Mot de passe") }, singleLine = true,
-                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { saveFocus.requestFocus() })
-                )
+                if (isTelevision) {
+                    SourceTextEntryButton("Identifiant", user) { openEditor("user", user) }
+                    SourceTextEntryButton("Mot de passe", if (pass.isBlank()) "" else "••••••••") { openEditor("pass", pass) }
+                } else {
+                    OutlinedTextField(user, { user = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Identifiant") }, singleLine = true)
+                    OutlinedTextField(pass, { pass = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Mot de passe") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
+                }
             }
             Text("HTTP et HTTPS sont acceptés. En HTTP, les identifiants Xtream et les flux ne sont pas chiffrés.", color = Muted, fontSize = 11.sp)
             validationError?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp) }
         }
     }, confirmButton = { TextButton(
-        modifier = Modifier.focusRequester(saveFocus).tvFocusable()
-            .focusProperties { up = if (kind == "Xtream") passFocus else endpointFocus; left = cancelFocus },
+        modifier = Modifier.tvFocusable(),
         onClick = {
             val uri = android.net.Uri.parse(endpoint.trim())
             val validHttpUrl = (uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) && !uri.host.isNullOrBlank()
@@ -855,11 +836,46 @@ private fun AddSourceDialog(onDismiss: () -> Unit, onSave: (String, String, Stri
             }
             if (validationError == null) onSave(name.trim(), kind, endpoint.trim(), user.trim(), pass)
         }
-    ) { Text("Tester et ajouter") } }, dismissButton = { TextButton(
-        modifier = Modifier.focusRequester(cancelFocus).tvFocusable()
-            .focusProperties { up = if (kind == "Xtream") passFocus else endpointFocus; right = saveFocus },
-        onClick = onDismiss
-    ) { Text("Annuler") } })
+    ) { Text("Tester et ajouter") } }, dismissButton = { TextButton(modifier = Modifier.tvFocusable(), onClick = onDismiss) { Text("Annuler") } })
+
+    if (editingField != null) {
+        val editorFocus = remember(editingField) { FocusRequester() }
+        LaunchedEffect(editingField) { if (editingField != null) editorFocus.requestFocus() }
+        val title = when (editingField) {
+            "name" -> "Nom du profil"
+            "endpoint" -> if (kind == "M3U") "URL de la playlist" else "Adresse du serveur"
+            "user" -> "Identifiant"
+            else -> "Mot de passe"
+        }
+        AlertDialog(
+            onDismissRequest = { editingField = null },
+            title = { Text(title) },
+            text = {
+                OutlinedTextField(
+                    value = editorValue,
+                    onValueChange = { editorValue = it },
+                    modifier = Modifier.fillMaxWidth().focusRequester(editorFocus),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { commitEditor() }),
+                    visualTransformation = if (editingField == "pass") androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None
+                )
+            },
+            confirmButton = { TextButton(onClick = { commitEditor() }) { Text("Valider") } },
+            dismissButton = { TextButton(onClick = { editingField = null }) { Text("Annuler") } }
+        )
+    }
+}
+
+@Composable
+private fun SourceTextEntryButton(label: String, value: String, onClick: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Panel)
+            .tvFocusable().clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        Text(label, color = Muted, fontSize = 11.sp)
+        Text(value.ifBlank { "Appuyer sur OK pour saisir" }, color = if (value.isBlank()) Muted else Cream, maxLines = 1)
+    }
 }
 
 @Composable
@@ -896,6 +912,7 @@ private fun CatalogScreen(
     onPlayEpisode: (XtreamEpisodeInfo) -> Unit
 ) {
     var searchText by remember(section) { mutableStateOf("") }
+    var searchEditorOpen by remember(section) { mutableStateOf(false) }
     val screenWidth = LocalConfiguration.current.screenWidthDp
     val isTelevision = LocalContext.current.isTelevisionDevice()
     val compact = !isTelevision && screenWidth < 600
@@ -1069,18 +1086,20 @@ private fun CatalogScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    OutlinedTextField(
-                        value = searchText,
-                        onValueChange = { searchText = it },
-                        modifier = Modifier.widthIn(min = 220.dp, max = 360.dp).tvFocusable(),
-                        singleLine = true,
-                        label = { Text("Tout rechercher") },
-                        placeholder = { Text("Chaîne, film ou série") },
-                        trailingIcon = {
-                            if (searchText.isNotEmpty()) TextButton(onClick = { searchText = "" }) { Text("×") }
-                            else Text("⌕", color = Cyan, fontSize = 21.sp)
+                    OutlinedButton(
+                        onClick = { searchEditorOpen = true },
+                        modifier = Modifier.widthIn(min = 220.dp, max = 360.dp).tvFocusable()
+                    ) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                searchText.ifBlank { "Tout rechercher" },
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                color = if (searchText.isBlank()) Muted else Cream
+                            )
+                            Text("⌕", color = Cyan, fontSize = 21.sp)
                         }
-                    )
+                    }
                     if (loading || searchLoading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
                 }
                 Spacer(Modifier.height(12.dp))
@@ -1129,6 +1148,28 @@ private fun CatalogScreen(
                 CatalogContent(Modifier.weight(1f).fillMaxHeight())
             }
         }
+    }
+    if (searchEditorOpen) {
+        val searchFocus = remember { FocusRequester() }
+        LaunchedEffect(searchEditorOpen) { if (searchEditorOpen) searchFocus.requestFocus() }
+        AlertDialog(
+            onDismissRequest = { searchEditorOpen = false },
+            title = { Text("Rechercher") },
+            text = {
+                OutlinedTextField(
+                    value = searchText,
+                    onValueChange = { searchText = it },
+                    modifier = Modifier.fillMaxWidth().focusRequester(searchFocus),
+                    singleLine = true,
+                    label = { Text("Chaîne, film ou série") },
+                    trailingIcon = { if (searchText.isNotEmpty()) TextButton(onClick = { searchText = "" }) { Text("×") } },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { searchEditorOpen = false })
+                )
+            },
+            confirmButton = { TextButton(onClick = { searchEditorOpen = false }) { Text("Afficher") } },
+            dismissButton = { TextButton(onClick = { searchText = ""; searchEditorOpen = false }) { Text("Effacer") } }
+        )
     }
     variantChoices?.let { choices ->
         AlertDialog(
