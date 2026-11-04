@@ -692,13 +692,13 @@ private fun SettingsScreen(
             }
             Button(
                 onClick = onAdd,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().tvFocusable(),
                 colors = ButtonDefaults.buttonColors(containerColor = Rust, contentColor = Cream)
             ) { Text("＋  Ajouter une source") }
         }
         SettingsSection("Mises à jour") {
             Text("Vérifier les nouvelles versions du projet.", color = Muted, fontSize = 13.sp)
-            OutlinedButton(onClick = onCheckUpdate, enabled = updateStatus != "Recherche de mise à jour…", modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = onCheckUpdate, enabled = updateStatus != "Recherche de mise à jour…", modifier = Modifier.fillMaxWidth().tvFocusable()) {
                 Text("Rechercher une mise à jour")
             }
             updateStatus?.let { Text(it, color = Cyan, fontSize = 12.sp) }
@@ -708,7 +708,7 @@ private fun SettingsScreen(
                 "HOME IPTV peut utiliser un VPN déjà configuré sur Android ou Fire TV. Configure-le dans les réglages système avant de lire tes flux.",
                 color = Muted, fontSize = 13.sp
             )
-            OutlinedButton(onClick = onVpn, modifier = Modifier.fillMaxWidth()) { Text("Ouvrir les réglages VPN") }
+            OutlinedButton(onClick = onVpn, modifier = Modifier.fillMaxWidth().tvFocusable()) { Text("Ouvrir les réglages VPN") }
         }
         Text(
             "HOME IPTV ne fournit pas de chaînes. L’app lit les flux de tes sources.",
@@ -743,13 +743,13 @@ private fun PlayerSettingRow(title: String, description: String, selected: Boole
             .clip(RoundedCornerShape(12.dp))
             .background(if (selected) Rust.copy(alpha = .16f) else Color(0xFF171411))
             .border(1.dp, if (selected) Rust else Color(0xFF41372F), RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
+            .tvFocusable().clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         RadioButton(
             selected = selected,
-            onClick = onClick,
+            onClick = null,
             colors = RadioButtonDefaults.colors(selectedColor = Rust, unselectedColor = Muted)
         )
         Column(Modifier.weight(1f).padding(start = 6.dp)) {
@@ -772,7 +772,7 @@ private fun AddSourceDialog(onDismiss: () -> Unit, onSave: (String, String, Stri
         Column(Modifier.fillMaxWidth().heightIn(max = dialogTextHeight).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(name, { name = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Nom du profil") }, singleLine = true)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("M3U", "Xtream").forEach { item -> FilterChip(selected = kind == item, onClick = { kind = item }, label = { Text(item) }) }
+                listOf("M3U", "Xtream").forEach { item -> FilterChip(selected = kind == item, onClick = { kind = item }, label = { Text(item) }, modifier = Modifier.tvFocusable()) }
             }
             OutlinedTextField(endpoint, { endpoint = it; validationError = null }, modifier = Modifier.fillMaxWidth(), label = { Text(if (kind == "M3U") "URL de la playlist" else "Adresse du serveur") }, singleLine = true)
             if (kind == "Xtream") {
